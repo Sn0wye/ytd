@@ -1,0 +1,32 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/Sn0wye/ytd/pkg/formatter"
+	"github.com/kkdai/youtube/v2"
+)
+
+const videoMimeType = "video/mp4"
+const audioMimeType = "audio/mp4"
+
+func main() {
+	videoID := "njX2bu-_Vw4"
+
+	client := youtube.Client{}
+
+	video, err := client.GetVideo(videoID)
+	if err != nil {
+		panic(err)
+	}
+
+	formattedVideo := formatter.FormatVideo(video)
+
+	// convert to json and print
+	jsonData, err := json.MarshalIndent(formattedVideo, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(jsonData))
+}
