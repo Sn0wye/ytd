@@ -3,6 +3,7 @@ package downloader
 import (
 	"mime"
 	"regexp"
+	"strings"
 )
 
 const defaultExtension = ".mov"
@@ -48,18 +49,21 @@ func pickIdealFileExtension(mediaType string) string {
 	return extensions[0]
 }
 
-func SanitizeFilename(fileName string) string {
-	// Characters not allowed on mac
-	//	:/
-	// Characters not allowed on linux
-	//	/
-	// Characters not allowed on windows
-	//	<>:"/\|?*
-
-	// Ref https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file#naming-conventions
-
-	fileName = regexp.MustCompile(`[:/<>\:"\\|?*]`).ReplaceAllString(fileName, "")
-	fileName = regexp.MustCompile(`\s+`).ReplaceAllString(fileName, " ")
+func SlugifyFilename(fileName string) string {
+	// Remove invalid characters
+	fileName = regexp.MustCompile(`[:/<>\:"\\|?*!@$.,']`).ReplaceAllString(fileName, "")
+	// Remove emojis and unicode symbols
+	fileName = regexp.MustCompile(`[\p{So}\p{Cf}]`).ReplaceAllString(fileName, "")
+	// Replace spaces with hyphens
+	fileName = regexp.MustCompile(`\s+`).ReplaceAllString(fileName, "-")
+	// Replace underscores with hyphens
+	fileName = strings.ReplaceAll(fileName, "_", "-")
+	// Remove multiple hyphens
+	fileName = regexp.MustCompile(`-+`).ReplaceAllString(fileName, "-")
+	// Lowercase the filename
+	fileName = strings.ToLower(fileName)
+	// Trim leading and trailing hyphens
+	fileName = strings.Trim(fileName, "-")
 
 	return fileName
 }

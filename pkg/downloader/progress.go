@@ -1,12 +1,12 @@
 package downloader
 
-type progress struct {
+type Progress struct {
 	contentLength     float64
 	totalWrittenBytes float64
 	downloadLevel     float64
 }
 
-func (dl *progress) Write(p []byte) (n int, err error) {
+func (dl *Progress) Write(p []byte) (n int, err error) {
 	n = len(p)
 	dl.totalWrittenBytes = dl.totalWrittenBytes + float64(n)
 	currentPercent := (dl.totalWrittenBytes / dl.contentLength) * 100

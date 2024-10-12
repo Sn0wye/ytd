@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"html/template"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/Sn0wye/ytd/pkg/downloader"
+	"github.com/Sn0wye/ytd/pkg/ffmpeg"
 	"github.com/Sn0wye/ytd/pkg/utils"
 	"github.com/kkdai/youtube/v2"
 	"github.com/manifoldco/promptui"
@@ -26,7 +26,10 @@ var downCmd = &cobra.Command{
 }
 
 var (
-	DEFAULT_DOWNLOAD_DIR string
+	TMP_DIR            string
+	OUTPUT_DIR         string
+	DEFAULT_OUTPUT_DIR string
+	OUTPUT_FILE_NAME   string
 )
 
 func init() {
@@ -35,8 +38,12 @@ func init() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	DEFAULT_DOWNLOAD_DIR = filepath.Join(homeDir, "Downloads")
+	TMP_DIR = filepath.Join(homeDir, "tmp")
+	DEFAULT_OUTPUT_DIR = filepath.Join(homeDir, "Downloads")
 
+	downCmd.Flags().StringVarP(&OUTPUT_FILE_NAME, "filename", "f", "", "Output filename for downloaded video")
+	downCmd.Flags().StringVarP(&OUTPUT_DIR, "output-dir", "o", DEFAULT_OUTPUT_DIR, "Output directory for downloaded video")
+	downCmd.Flags().StringVarP(&TMP_DIR, "tmp-dir", "t", TMP_DIR, "Temporary directory for video and audio files")
 	rootCmd.AddCommand(downCmd)
 }
 
@@ -58,6 +65,7 @@ func download(videoURL string) error {
 	audioFormats := video.Formats.Type("audio")
 
 	// Define templates for video format selection
+	// Define templates for video format selection
 	videoTemplates := &promptui.SelectTemplates{
 		Label: fmt.Sprintf(`
 Video Information
@@ -66,7 +74,8 @@ Author:   %s
 Duration: %s
 
 Available Video Formats:
-Size (MB)    | Quality`,
+Size (MB)    | Quality
+`,
 			video.Title, video.Author, video.Duration),
 		Active:   `▶ {{ .ContentLength | formatSize | printf "%-10s" }} | {{ .QualityLabel | printf "%-15s" }}`,
 		Inactive: `  {{ .ContentLength | formatSize | printf "%-10s" }} | {{ .QualityLabel | printf "%-15s" }}`,
@@ -75,15 +84,15 @@ Size (MB)    | Quality`,
 --------- Format Details ----------
 Size:    {{ .ContentLength | formatSize }}
 Quality: {{ .QualityLabel }}
-FPS:     {{ .Fps }}
+FPS:     {{ .FPS }}
 Type:    {{ .MimeType }}`,
 	}
 
 	// Define templates for audio format selection
 	audioTemplates := &promptui.SelectTemplates{
-		Label: fmt.Sprintf(`
+		Label: `
 Available Audio Formats:
-Size (MB)    | Bitrate (Kbps)`),
+Size (MB)    | Bitrate (Kbps)`,
 		Active:   `▶ {{ .ContentLength | formatSize | printf "%-10s" }} | {{ .Bitrate | printf "%-15d" }}`,
 		Inactive: `  {{ .ContentLength | formatSize | printf "%-10s" }} | {{ .Bitrate | printf "%-15d" }}`,
 		Selected: `✔ {{ .ContentLength | formatSize | printf "%-10s" }} | {{ .Bitrate | printf "%-15d" }}`,
@@ -140,10 +149,14 @@ Type:    {{ .MimeType }}`,
 		return err
 	}
 
+	if OUTPUT_FILE_NAME == "" {
+		OUTPUT_FILE_NAME = downloader.SlugifyFilename(video.Title) + ".mp4"
+	}
+
 	// Set up output paths
-	outputVideoFile := filepath.Join(DEFAULT_DOWNLOAD_DIR, "video.mp4")
-	outputAudioFile := filepath.Join(DEFAULT_DOWNLOAD_DIR, "audio.m4a")
-	finalOutputFile := filepath.Join(DEFAULT_DOWNLOAD_DIR, "final_output.mp4")
+	outputVideoFile := filepath.Join(TMP_DIR, "video.mp4")
+	outputAudioFile := filepath.Join(TMP_DIR, "audio.m4a")
+	finalOutputFile := filepath.Join(OUTPUT_DIR, OUTPUT_FILE_NAME)
 
 	selectedVideoFormat := videoFormats[videoIndex]
 	selectedAudioFormat := audioFormats[audioIndex]
@@ -151,18 +164,14 @@ Type:    {{ .MimeType }}`,
 	// Initialize downloader
 	down := downloader.Downloader{
 		Client:    client,
-		OutputDir: DEFAULT_DOWNLOAD_DIR,
+		OutputDir: OUTPUT_DIR,
 	}
 
-	// Download video
-	fmt.Println("Downloading video...")
 	err = down.DownloadVideo(context.Background(), outputVideoFile, video, selectedVideoFormat.ItagNo)
 	if err != nil {
 		return err
 	}
 
-	// Download audio
-	fmt.Println("Downloading audio...")
 	err = down.DownloadAudio(context.Background(), outputAudioFile, video, selectedAudioFormat.ItagNo)
 	if err != nil {
 		return err
@@ -170,19 +179,25 @@ Type:    {{ .MimeType }}`,
 
 	// Merge video and audio using ffmpeg
 	fmt.Println("Merging video and audio...")
-	err = mergeVideoAudio(outputVideoFile, outputAudioFile, finalOutputFile)
+	err = ffmpeg.MergeVideoWithAudio(outputVideoFile, outputAudioFile, finalOutputFile)
+	if err != nil {
+		return err
+	}
+
+	// Clean up tmp video file
+	err = os.Remove(outputVideoFile)
+
+	if err != nil {
+		return err
+	}
+
+	// Clean up tmp audio file
+	err = os.Remove(outputAudioFile)
+
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("\nVideo and audio downloaded and merged successfully: %s\n", finalOutputFile)
 	return nil
-}
-
-// mergeVideoAudio uses ffmpeg to merge video and audio into a single file
-func mergeVideoAudio(videoFile, audioFile, outputFile string) error {
-	cmd := exec.Command("ffmpeg", "-i", videoFile, "-i", audioFile, "-c:v", "copy", "-c:a", "aac", outputFile)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
 }

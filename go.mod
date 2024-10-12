@@ -6,7 +6,7 @@ require (
 	github.com/kkdai/youtube/v2 v2.10.1
 	github.com/manifoldco/promptui v0.9.0
 	github.com/spf13/cobra v1.8.1
-	golang.org/x/net v0.22.0
+	github.com/vbauerster/mpb/v5 v5.4.0
 )
 
 require (
@@ -22,7 +22,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/vbauerster/mpb/v5 v5.4.0 // indirect
 	golang.org/x/sys v0.24.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 )
