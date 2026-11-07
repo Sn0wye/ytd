@@ -1,9 +1,9 @@
-package downloader_test
+package utils_test
 
 import (
 	"testing"
 
-	"github.com/Sn0wye/ytd/pkg/downloader"
+	"github.com/Sn0wye/ytd/pkg/utils"
 )
 
 func TestSlugifyFilename(t *testing.T) {
@@ -51,7 +51,7 @@ func TestSlugifyFilename(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.input, func(t *testing.T) {
-			result := downloader.SlugifyFilename(test.input)
+			result := utils.SlugifyFilename(test.input)
 			if result != test.expected {
 				t.Errorf("Expected %q, got %q", test.expected, result)
 			}
