@@ -1,3 +1,130 @@
-https://github.com/kkdai/youtube/issues/273
+# ytd
 
-use this issue, combine video with highest quality audio into one single file using ffmpeg
+Download YouTube videos from the terminal. You choose the video quality and the
+audio quality from a list, and ytd hands you back one file in the format you
+asked for.
+
+- **No login, no API key, no cookies.**
+- **No other programs needed.** Extraction, parallel download and muxing are
+  plain Go. ffmpeg is only used for the two cases that need re-encoding (mp3
+  and `--h264`).
+- **Lossless.** Streams are copied as YouTube serves them, never re-encoded.
+- **Fast.** About twice as fast as yt-dlp on the same streams (see below).
+
+## Install
+
+```sh
+go install github.com/Sn0wye/ytd@latest
+```
+
+## Usage
+
+```sh
+ytd down https://www.youtube.com/watch?v=aqz-KE-bpKQ      # pick quality, get an mp4
+ytd down https://youtu.be/aqz-KE-bpKQ --best              # no prompts, best quality
+ytd down <url> --format webm                              # VP9/AV1 + Opus
+ytd down <url> --format mkv                               # any codec combination
+ytd down <url> --audio-only                               # m4a (AAC)
+ytd down <url> --format opus                              # Opus audio
+ytd down <url> --format mp3                               # needs ffmpeg
+ytd down <url> --h264                                     # VP9/AV1 -> H.264, needs ffmpeg
+```
+
+Accepted inputs: `watch?v=`, `youtu.be/`, `shorts/`, `embed/`, `live/`,
+`music.youtube.com` links, or a bare 11-character video ID.
+
+| Flag | Default | |
+|---|---|---|
+| `--format` | `mp4` (`m4a` with `-a`) | `mp4`, `mkv`, `webm`, `m4a`, `opus`, `mp3` |
+| `-a, --audio-only` | | audio only |
+| `-b, --best` | | skip the prompts, pick the best quality |
+| `-i, --itag` | | skip the prompts, pick streams by itag: `VIDEO+AUDIO` (e.g. `337+251`), or `AUDIO` with `-a`. Itags are shown in the selector |
+| `-o, --output-dir` | `~/Downloads` | where the file goes |
+| `-f, --filename` | slugified title | output name; a known extension also sets `--format` |
+| `-c, --connections` | `8` | parallel connections |
+| `--h264` | | re-encode to H.264 for old players |
+| `-t, --tmp-dir` | system temp | where streams are stored before muxing |
+
+The selectors only list streams that fit the chosen format without
+re-encoding:
+
+| Format | Video | Audio |
+|---|---|---|
+| mp4 | H.264, AV1 | AAC |
+| webm | VP9, AV1 | Opus |
+| mkv | H.264, AV1, VP9 | AAC, Opus |
+| m4a | | AAC |
+| opus | | Opus |
+
+Want 1440p/4K VP9 or Opus audio? Use `--format webm` or `--format mkv`.
+
+Output files get title and artist metadata and never overwrite an existing file.
+
+## How it works
+
+1. **Extraction** (`pkg/youtube`), ported from yt-dlp's YouTube extractor.
+   ytd gets an anonymous visitor ID from `youtube.com/sw.js_data` (3 KB, where
+   yt-dlp downloads the 1 MB+ watch page) and calls the InnerTube `player`
+   API as the visionOS client. yt-dlp ships that client as its "no JS runtime"
+   default: it needs no PO token and returns stream URLs without signature or
+   `n` challenges, so there is no player JavaScript to download and run.
+2. **Download**: both streams are fetched at once, split into 10 MB ranges
+   (yt-dlp's chunk size for YouTube) over 8 HTTP/1.1 connections, written in
+   place with retries.
+3. **Muxing** (`pkg/media`): fragmented MP4 and WebM demuxers, and writers for
+   progressive MP4/M4A (moov first, edit lists kept for B-frames, iTunes
+   tags), Matroska/WebM (with Cues for seeking) and Ogg Opus. AV1 temporal
+   delimiters are dropped like ffmpeg does. The packets and timestamps match
+   what `yt-dlp` + ffmpeg produce for the same streams.
+
+## Benchmark
+
+Method (`bench/bench.py`): both tools get the same streams (`ytd --itag V+A`
+vs `yt-dlp --ignore-config -f V+A --merge-output-format …`) and run strictly
+one at a time. Each round runs both back to back, alternating which goes
+first, and the result is the per-round ratio `t_yt-dlp / t_ytd`: network
+drift hits both runs of a pair alike, so the ratio cancels most of it. The
+speedup is the geometric mean of 7 ratios with a 95% confidence interval. As a
+cross-check, a googlevideo probe (80 MiB, 4 connections, a stream not under
+test) before every run normalises each time to the mean line speed.
+yt-dlp 2026.10.26 waits 4–6 s per run ("Sleeping … as required by the
+site"), so the speedup is also shown with that wait removed. Times are wall
+clock, including extraction and merging.
+
+[b8wsjx7dFwM](https://www.youtube.com/watch?v=b8wsjx7dFwM) (6:00, 4K60 SDR,
+3840x1600), best stream per codec plus the best audio for the container:
+
+| Codec → container | Streams | ytd median | yt-dlp median | Speedup (95% CI) | Normalised | Without yt-dlp's sleep |
+|---|---|---|---|---|---|---|
+| H.264 1080p60 → mp4 | 299 + 140 AAC, 179 MiB | 3.6 s | 12.2 s | **3.46x** (3.19–3.75) | 3.33x (2.98–3.72) | 2.14x (1.93–2.36) |
+| VP9 2160p60 → webm | 315 + 251 Opus, 603 MiB | 10.2 s | 23.9 s | **2.34x** (2.04–2.67) | – | 1.90x (1.63–2.23) |
+| AV1 2160p60 → mp4 | 401 + 140 AAC, 627 MiB | 14.0 s | 30.0 s | **2.10x** (1.90–2.31) | 2.00x (1.61–2.49) | 1.79x (1.62–1.97) |
+
+[LXb3EKWsInQ](https://www.youtube.com/watch?v=LXb3EKWsInQ) (5:14, 4K60 HDR10),
+3 rounds, before the paired method:
+
+| Codec → container | Streams | ytd median | yt-dlp median |
+|---|---|---|---|
+| H.264 1080p60 → mp4 | 299 + 140 AAC | 3.6 s | 12.4 s |
+| VP9 2160p60 HDR → webm | 337 + 251 Opus | 18.1 s | 37.8 s |
+| AV1 2160p60 HDR → webm | 701 + 251 Opus | 14.8 s | 37.6 s |
+
+Every interval excludes 1.0. ytd's run-to-run variation (CV) was 4–11%,
+yt-dlp's 7–11%. In every case the packets and timestamps of both outputs are
+identical (`ffmpeg -f streamhash`, `-f framecrc`), and so are codec, colour
+and HDR10 metadata (`ffprobe`). `yt-dlp -N 8` changed little (1–5%) because
+it parallelises fragmented streams, not these plain HTTPS ones.
+
+The VP9 normalised figure is missing because the line probe failed during
+that run (rate limited). Heavy benchmarking eventually gets the IP flagged by
+YouTube ("Sign in to confirm you're not a bot") for both tools; space the runs out.
+
+## Limitations
+
+- No 5.1 audio (those streams come from YouTube clients that need the player
+  JavaScript) and no live streams.
+- Age-restricted and members-only videos need a login, which ytd does not do.
+- "Made for kids" videos are not served to the visionOS client.
+- YouTube changes its clients from time to time. If downloads start failing,
+  compare `pkg/youtube/client.go` with `INNERTUBE_CLIENTS` in yt-dlp's
+  `yt_dlp/extractor/youtube/_base.py`.
