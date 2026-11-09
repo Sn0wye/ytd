@@ -14,9 +14,9 @@ import (
 
 	"github.com/Sn0wye/ytd/pkg/ffmpeg"
 	"github.com/Sn0wye/ytd/pkg/media"
+	"github.com/Sn0wye/ytd/pkg/ui"
 	"github.com/Sn0wye/ytd/pkg/utils"
 	"github.com/Sn0wye/ytd/pkg/youtube"
-	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
 
@@ -35,7 +35,7 @@ var (
 	itags       string
 	forceH264   bool
 	connections int
-	errAborted  = errors.New("aborted")
+	out         = ui.New()
 )
 
 var downCmd = &cobra.Command{
@@ -57,10 +57,14 @@ Examples:
 	Args: cobra.ExactArgs(1),
 	Run: func(_ *cobra.Command, args []string) {
 		err := download(args[0])
-		if errors.Is(err, errAborted) || errors.Is(err, context.Canceled) {
+		if errors.Is(err, ui.ErrAborted) || errors.Is(err, context.Canceled) {
+			out.Fail(ui.ErrAborted)
 			os.Exit(130)
 		}
-		utils.ExitOnError(err)
+		if err != nil {
+			out.Fail(err)
+			os.Exit(1)
+		}
 	},
 }
 
@@ -99,12 +103,14 @@ func download(url string) error {
 	defer stop()
 
 	client := youtube.NewClient(connections)
-	fmt.Println("Fetching video info...")
+	out.Intro(version)
+	stopTask := out.Task("Fetching video info", "Video found")
 	video, err := client.GetVideo(ctx, id)
+	stopTask(err)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\n  Title:    %s\n  Author:   %s\n  Duration: %s\n\n", video.Title, video.Author, video.Duration)
+	out.Info(video.Title, video.Author, video.Duration)
 
 	transcode := container == "mp3" || forceH264
 	wantVideo, wantAudio, err := parseItags(itags)
@@ -153,13 +159,16 @@ func download(url string) error {
 	jobs = append(jobs, youtube.Job{Format: af, Path: audioPath})
 	sources = append(sources, media.Source{Path: audioPath, Ext: af.Ext})
 
-	fmt.Println()
-	dlStart := time.Now()
-	if err := client.Download(ctx, jobs, progressPrinter(dlStart)); err != nil {
-		fmt.Fprintln(os.Stderr)
+	var total int64
+	for _, j := range jobs {
+		total += j.Format.Size
+	}
+	bar := out.StartProgress("Downloading")
+	if err := client.Download(ctx, jobs, bar.Bytes); err != nil {
+		bar.Fail()
 		return err
 	}
-	fmt.Fprintln(os.Stderr)
+	bar.Done("Downloaded", fmt.Sprintf("%s in %.1fs", utils.FormatSize(total), bar.Elapsed().Seconds()))
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return err
@@ -168,7 +177,7 @@ func download(url string) error {
 	meta := media.Meta{Title: video.Title, Artist: video.Author}
 
 	if transcode {
-		fmt.Println("Re-encoding with ffmpeg...")
+		bar := out.StartProgress("Re-encoding with ffmpeg")
 		job := ffmpeg.Job{
 			AudioPath:  audioPath,
 			AudioCodec: af.Codec,
@@ -177,6 +186,7 @@ func download(url string) error {
 			Title:      meta.Title,
 			Artist:     meta.Artist,
 			Output:     output,
+			Progress:   func(done time.Duration) { bar.Media(done, video.Duration) },
 		}
 		if vf != nil {
 			job.VideoPath = sources[0].Path
@@ -184,33 +194,26 @@ func download(url string) error {
 			job.VideoBitrate = float64(vf.Bitrate) / 1000
 		}
 		if err := ffmpeg.Run(ctx, job); err != nil {
+			bar.Fail()
 			os.Remove(output)
 			return err
 		}
-	} else if err := media.Mux(output, container, sources, meta); err != nil {
-		return fmt.Errorf("writing %s: %w", container, err)
-	}
-
-	size := ""
-	if st, err := os.Stat(output); err == nil {
-		size = formatSize(st.Size()) + ", "
-	}
-	fmt.Printf("\n✔ Saved to %s (%sdone in %.1fs)\n", output, size, time.Since(start).Seconds())
-	return nil
-}
-
-func progressPrinter(start time.Time) youtube.Progress {
-	return func(done, total int64) {
-		el := time.Since(start).Seconds()
-		speed := float64(done) / max(el, 0.001)
-		eta := "-"
-		if speed > 0 && total > done {
-			eta = fmt.Sprintf("%.0fs", float64(total-done)/speed)
+		bar.Done("Re-encoded", fmt.Sprintf("in %.1fs", bar.Elapsed().Seconds()))
+	} else {
+		stopTask := out.Task("Muxing into "+container, "Muxed into "+container)
+		err := media.Mux(output, container, sources, meta)
+		stopTask(err)
+		if err != nil {
+			return fmt.Errorf("writing %s: %w", container, err)
 		}
-		pct := 100 * float64(done) / float64(max(total, 1))
-		fmt.Fprintf(os.Stderr, "\r  Downloading %5.1f%%  %s / %s  %s/s  ETA %s   ",
-			pct, formatSize(done), formatSize(total), formatSize(int64(speed)), eta)
 	}
+
+	var size int64
+	if st, err := os.Stat(output); err == nil {
+		size = st.Size()
+	}
+	out.Saved(output, size, time.Since(start))
+	return nil
 }
 
 // resolveContainer picks the output format from --format, the --filename
@@ -343,7 +346,7 @@ func chooseVideo(v *youtube.Video, container string, transcode bool, itag int) (
 	if itag != 0 {
 		f, err := pickItag(all, formats, itag, container)
 		if err == nil {
-			fmt.Println("Video: " + videoRow(f))
+			out.Picked("Video quality", videoRow(f))
 		}
 		return f, err
 	}
@@ -351,23 +354,23 @@ func chooseVideo(v *youtube.Video, container string, transcode bool, itag int) (
 		return youtube.Format{}, fmt.Errorf("no video streams can be saved as %s; try --format mkv", container)
 	}
 	if pickBest {
-		fmt.Println("Video: " + videoRow(formats[0]))
+		out.Picked("Video quality", videoRow(formats[0]))
 		return formats[0], nil
 	}
 	rows := make([]string, len(formats))
 	for i, f := range formats {
 		rows[i] = videoRow(f)
 	}
-	header := fmt.Sprintf("  %-14s %-6s %10s %10s  %4s", "QUALITY", "CODEC", "BITRATE", "SIZE", "ITAG")
-	title := "Select video quality:"
+	header := fmt.Sprintf("%-14s %-6s %10s %10s  %4s", "QUALITY", "CODEC", "BITRATE", "SIZE", "ITAG")
+	note := ""
 	if h := hidden(all, formats); h != "" {
 		alt := "webm or mkv"
 		if container != "mp4" {
 			alt = "mkv"
 		}
-		title += fmt.Sprintf(" (%s streams do not fit in %s without re-encoding; use --format %s to see them)", h, container, alt)
+		note = fmt.Sprintf("%s streams do not fit in %s without re-encoding; use --format %s to see them", h, container, alt)
 	}
-	i, err := selectRow(title, header, rows, 0)
+	i, err := out.Select("Video quality", note, header, rows)
 	if err != nil {
 		return youtube.Format{}, err
 	}
@@ -380,7 +383,7 @@ func chooseAudio(v *youtube.Video, container string, transcode bool, itag int) (
 	if itag != 0 {
 		f, err := pickItag(all, formats, itag, container)
 		if err == nil {
-			fmt.Println("Audio: " + audioRow(f))
+			out.Picked("Audio quality", audioRow(f))
 		}
 		return f, err
 	}
@@ -388,15 +391,15 @@ func chooseAudio(v *youtube.Video, container string, transcode bool, itag int) (
 		return youtube.Format{}, fmt.Errorf("no audio streams can be saved as %s", container)
 	}
 	if pickBest {
-		fmt.Println("Audio: " + audioRow(formats[0]))
+		out.Picked("Audio quality", audioRow(formats[0]))
 		return formats[0], nil
 	}
 	rows := make([]string, len(formats))
 	for i, f := range formats {
 		rows[i] = audioRow(f)
 	}
-	header := fmt.Sprintf("  %-6s %10s %-8s %10s  %4s  %s", "CODEC", "BITRATE", "CHANNELS", "SIZE", "ITAG", "LANGUAGE")
-	i, err := selectRow("Select audio quality:", header, rows, 0)
+	header := fmt.Sprintf("%-6s %10s %-8s %10s  %4s  %s", "CODEC", "BITRATE", "CHANNELS", "SIZE", "ITAG", "LANGUAGE")
+	i, err := out.Select("Audio quality", "", header, rows)
 	if err != nil {
 		return youtube.Format{}, err
 	}
@@ -405,12 +408,12 @@ func chooseAudio(v *youtube.Video, container string, transcode bool, itag int) (
 
 func videoRow(f youtube.Format) string {
 	return fmt.Sprintf("%-14s %-6s %10s %10s  %4d",
-		f.Resolution(), f.CodecLabel(), fmt.Sprintf("%d kbps", f.Bitrate/1000), formatSize(f.Size), f.Itag)
+		f.Resolution(), f.CodecLabel(), fmt.Sprintf("%d kbps", f.Bitrate/1000), utils.FormatSize(f.Size), f.Itag)
 }
 
 func audioRow(f youtube.Format) string {
 	return fmt.Sprintf("%-6s %10s %-8s %10s  %4d  %s",
-		f.CodecLabel(), fmt.Sprintf("%d kbps", f.Bitrate/1000), channels(f.Channels), formatSize(f.Size), f.Itag, f.Language)
+		f.CodecLabel(), fmt.Sprintf("%d kbps", f.Bitrate/1000), channels(f.Channels), utils.FormatSize(f.Size), f.Itag, f.Language)
 }
 
 func channels(n int) string {
@@ -428,52 +431,3 @@ func channels(n int) string {
 	}
 	return fmt.Sprintf("%dch", n)
 }
-
-func formatSize(b int64) string {
-	if b <= 0 {
-		return "0 B"
-	}
-	mb := float64(b) / (1 << 20)
-	if mb >= 1024 {
-		return fmt.Sprintf("%.2f GB", mb/1024)
-	}
-	return fmt.Sprintf("%.1f MB", mb)
-}
-
-// selectRow shows an arrow-key list. promptui labels must be a single line,
-// so the title is printed separately and the label holds the column header.
-func selectRow(title, header string, rows []string, cursor int) (int, error) {
-	fmt.Println(title)
-	size := min(len(rows), 15)
-	prompt := promptui.Select{
-		Label: header,
-		Items: rows,
-		Size:  size,
-		Templates: &promptui.SelectTemplates{
-			Label:    "{{ . | faint }}",
-			Active:   "▸ {{ . | cyan }}",
-			Inactive: "  {{ . }}",
-			Selected: "✔ {{ . | green }}",
-		},
-		HideHelp: true,
-		Stdout:   noBellStdout{},
-	}
-	i, _, err := prompt.RunCursorAt(cursor, max(0, cursor-size+1))
-	if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
-		return 0, errAborted
-	}
-	return i, err
-}
-
-// noBellStdout filters the terminal bell promptui's readline emits on every
-// keystroke (https://github.com/manifoldco/promptui/issues/49).
-type noBellStdout struct{}
-
-func (noBellStdout) Write(b []byte) (int, error) {
-	if len(b) == 1 && b[0] == '\a' {
-		return 0, nil
-	}
-	return os.Stdout.Write(b)
-}
-
-func (noBellStdout) Close() error { return nil }
