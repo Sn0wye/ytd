@@ -5,3 +5,4 @@ main
 /bench/gvprobe-bin
 /bench/runs/
 __pycache__/
+/dist/
