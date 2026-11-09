@@ -14,8 +14,22 @@ asked for.
 ## Install
 
 ```sh
+brew install sn0wye/tap/ytd
+```
+
+Or with curl (macOS and Linux):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Sn0wye/ytd/main/install.sh | sh
+```
+
+Or with Go:
+
+```sh
 go install github.com/Sn0wye/ytd@latest
 ```
+
+Windows: download the zip from [Releases](https://github.com/Sn0wye/ytd/releases).
 
 ## Usage
 
