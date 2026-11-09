@@ -14,7 +14,9 @@ asked for.
 ## Install
 
 ```sh
-brew install sn0wye/tap/ytd
+brew tap sn0wye/tap
+brew trust sn0wye/tap   # Homebrew 7+ refuses casks from untrusted taps
+brew install ytd
 ```
 
 Or with curl (macOS and Linux):
