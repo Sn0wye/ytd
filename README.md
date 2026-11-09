@@ -36,7 +36,8 @@ Windows: download the zip from [Releases](https://github.com/Sn0wye/ytd/releases
 ## Usage
 
 ```sh
-ytd down https://www.youtube.com/watch?v=aqz-KE-bpKQ      # pick quality, get an mp4
+ytd down 'https://www.youtube.com/watch?v=aqz-KE-bpKQ'    # pick quality, get an mp4
+ytd down aqz-KE-bpKQ                                      # same, video ID only
 ytd down https://youtu.be/aqz-KE-bpKQ --best              # no prompts, best quality
 ytd down <url> --format webm                              # VP9/AV1 + Opus
 ytd down <url> --format mkv                               # any codec combination
@@ -48,6 +49,15 @@ ytd down <url> --h264                                     # VP9/AV1 -> H.264, ne
 
 Accepted inputs: `watch?v=`, `youtu.be/`, `shorts/`, `embed/`, `live/`,
 `music.youtube.com` links, or a bare 11-character video ID.
+
+Quote URLs that contain `?` or `&`. Without quotes, zsh treats `?` as a
+filename pattern and stops with `no matches found` before ytd runs, and any
+shell treats `&` as "run in background". To paste `watch?v=` links unquoted
+in zsh, add this to `~/.zshrc`:
+
+```sh
+alias ytd='noglob ytd'
+```
 
 | Flag | Default | |
 |---|---|---|
