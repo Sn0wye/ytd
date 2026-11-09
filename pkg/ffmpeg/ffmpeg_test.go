@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestArgs(t *testing.T) {
@@ -41,5 +42,35 @@ func TestArgs(t *testing.T) {
 	}
 	if args, _ := Args(Job{AudioPath: "a", AudioCodec: "aac", Container: "m4a", Title: "x", Output: "o"}); !slices.Contains(args, "title=x") {
 		t.Error("missing title metadata")
+	}
+}
+
+func TestArgsReportProgressOnStdout(t *testing.T) {
+	args, err := Args(Job{AudioPath: "a", AudioCodec: "aac", Container: "mp3", Output: "o.mp3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-progress pipe:1") || !strings.Contains(joined, "-nostats") {
+		t.Errorf("want -progress pipe:1 and -nostats in %s", joined)
+	}
+}
+
+func TestProgressTime(t *testing.T) {
+	cases := []struct {
+		line string
+		want time.Duration
+		ok   bool
+	}{
+		{"out_time_us=83450000", 83450 * time.Millisecond, true},
+		{"out_time_us=N/A", 0, false},
+		{"out_time_ms=83450000", 0, false},
+		{"frame=120", 0, false},
+	}
+	for _, c := range cases {
+		got, ok := progressTime(c.line)
+		if got != c.want || ok != c.ok {
+			t.Errorf("progressTime(%q) = %v, %v; want %v, %v", c.line, got, ok, c.want, c.ok)
+		}
 	}
 }

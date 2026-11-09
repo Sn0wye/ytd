@@ -4,17 +4,17 @@
 package ffmpeg
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"os/exec"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Binary is the ffmpeg executable name or path.
@@ -45,6 +45,10 @@ type Job struct {
 	Title        string
 	Artist       string
 	Output       string
+
+	// Progress, if set, is called with how much of the media ffmpeg has
+	// written so far, a few times per second.
+	Progress func(done time.Duration)
 }
 
 // H264Encoder is the encoder used when video must be re-encoded.
@@ -69,7 +73,8 @@ func Args(j Job) ([]string, error) {
 		return nil, fmt.Errorf("unsupported video format %q (use one of: %s)", j.Container, strings.Join(VideoContainers, ", "))
 	}
 
-	args := []string{"-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-stats"}
+	// Progress goes to stdout as key=value lines; see Run.
+	args := []string{"-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-nostats", "-progress", "pipe:1"}
 	if audioOnly {
 		args = append(args, "-i", j.AudioPath, "-map", "0:a:0", "-vn")
 	} else {
@@ -173,7 +178,8 @@ func CheckInstalled() error {
 	return nil
 }
 
-// Run executes the job. ffmpeg's progress line and errors go to stderr.
+// Run executes the job, reporting progress to j.Progress. ffmpeg's errors
+// are returned, not printed.
 func Run(ctx context.Context, j Job) error {
 	args, err := Args(j)
 	if err != nil {
@@ -181,10 +187,40 @@ func Run(ctx context.Context, j Job) error {
 	}
 	cmd := exec.CommandContext(ctx, Binary, args...)
 	var stderr bytes.Buffer
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
-	if err := cmd.Run(); err != nil {
+	cmd.Stderr = &stderr
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	sc := bufio.NewScanner(out)
+	for sc.Scan() {
+		if d, ok := progressTime(sc.Text()); ok && j.Progress != nil {
+			j.Progress(d)
+		}
+	}
+	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
 		return fmt.Errorf("ffmpeg failed: %s", strings.TrimSpace(lines[len(lines)-1]))
 	}
 	return nil
+}
+
+// progressTime parses the out_time_us line of ffmpeg's -progress output.
+// (out_time_ms holds microseconds too, a long-standing ffmpeg quirk.)
+func progressTime(line string) (time.Duration, bool) {
+	v, ok := strings.CutPrefix(line, "out_time_us=")
+	if !ok {
+		return 0, false
+	}
+	us, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || us < 0 {
+		return 0, false // "N/A" before the first frame
+	}
+	return time.Duration(us) * time.Microsecond, true
 }
