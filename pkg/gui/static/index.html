@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ytd</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="badge">ytd</span>
+      <span id="version" class="dim"></span>
+    </div>
+    <button id="quit" class="ghost" type="button" title="Stop ytd">Quit</button>
+  </header>
+
+  <div id="offline" class="banner" hidden>ytd is not running anymore. Start it again to keep downloading.</div>
+
+  <main>
+    <section class="card">
+      <form id="fetch-form" class="fetch" autocomplete="off">
+        <label for="url" class="sr-only">YouTube link</label>
+        <input id="url" name="url" type="text" spellcheck="false"
+               placeholder="Paste a YouTube video or playlist link" required>
+        <button id="fetch" class="primary" type="submit">Fetch</button>
+      </form>
+      <p id="fetch-error" class="error" role="alert" hidden></p>
+    </section>
+
+    <section id="result" class="card" hidden>
+      <div id="video-head" class="video-head" hidden>
+        <img id="thumb" alt="" width="192" height="108">
+        <div>
+          <h1 id="video-title"></h1>
+          <p id="video-meta" class="dim"></p>
+          <button id="use-list" class="link" type="button" hidden>This video is part of a playlist — download the whole playlist instead</button>
+        </div>
+      </div>
+
+      <div id="list-box" hidden>
+        <div class="list-head">
+          <div>
+            <h1 id="list-title"></h1>
+            <p id="list-meta" class="dim"></p>
+          </div>
+          <div class="list-actions">
+            <button id="select-all" class="ghost" type="button">All</button>
+            <button id="select-none" class="ghost" type="button">None</button>
+          </div>
+        </div>
+        <ol id="entries" class="entries"></ol>
+      </div>
+
+      <div class="options">
+        <div class="field">
+          <span class="label" id="format-label">Format</span>
+          <div id="formats" class="segmented" role="radiogroup" aria-labelledby="format-label"></div>
+        </div>
+
+        <label id="h264-row" class="check">
+          <input id="h264" type="checkbox">
+          <span>Re-encode video to H.264 so it plays everywhere <span class="dim">(slower, needs ffmpeg)</span></span>
+        </label>
+
+        <div id="quality" class="row">
+          <label id="video-q-field" class="field">
+            <span class="label">Video quality</span>
+            <select id="video-q"></select>
+          </label>
+          <label class="field">
+            <span class="label">Audio quality</span>
+            <select id="audio-q"></select>
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="label">Save to</span>
+          <input id="outdir" type="text" spellcheck="false">
+        </label>
+        <label id="subfolder-row" class="check" hidden>
+          <input id="subfolder" type="checkbox" checked>
+          <span>Put the playlist in its own folder</span>
+        </label>
+
+        <p id="ffmpeg-warn" class="warn" hidden></p>
+        <div class="actions">
+          <button id="download" class="primary" type="button">Download</button>
+          <span id="dl-summary" class="dim"></span>
+        </div>
+        <p id="dl-error" class="error" role="alert" hidden></p>
+      </div>
+    </section>
+
+    <section class="queue-section">
+      <div class="queue-head">
+        <h2>Downloads <span id="queue-count" class="dim"></span></h2>
+        <div class="queue-actions">
+          <button id="cancel-all" class="ghost" type="button" hidden>Cancel all</button>
+          <button id="clear" class="ghost" type="button" hidden>Clear finished</button>
+        </div>
+      </div>
+      <ol id="queue" class="queue"></ol>
+      <p id="queue-empty" class="empty dim">Nothing here yet. Fetch a link above to start.</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
