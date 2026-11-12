@@ -12,8 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Sn0wye/ytd/pkg/ffmpeg"
-	"github.com/Sn0wye/ytd/pkg/media"
+	"github.com/Sn0wye/ytd/pkg/downloader"
 	"github.com/Sn0wye/ytd/pkg/ui"
 	"github.com/Sn0wye/ytd/pkg/utils"
 	"github.com/Sn0wye/ytd/pkg/youtube"
@@ -21,26 +20,24 @@ import (
 )
 
 var (
-	videoContainers = []string{"mp4", "mkv", "webm"}
-	audioContainers = []string{"m4a", "opus", "mp3"}
-)
-
-var (
-	outputDir   string
-	tmpDir      string
-	fileName    string
-	format      string
-	audioOnly   bool
-	pickBest    bool
-	itags       string
-	forceH264   bool
-	connections int
-	out         = ui.New()
+	outputDir     string
+	tmpDir        string
+	fileName      string
+	format        string
+	audioOnly     bool
+	pickBest      bool
+	itags         string
+	forceH264     bool
+	connections   int
+	playlist      bool
+	noPlaylistDir bool
+	items         string
+	out           = ui.New()
 )
 
 var downCmd = &cobra.Command{
 	Use:   "down <url>",
-	Short: "Download a YouTube video, choosing video and audio quality",
+	Short: "Download a YouTube video or playlist, choosing video and audio quality",
 	Long: `Download a YouTube video. You pick the video quality and the audio quality,
 ytd downloads both streams in parallel and merges them into a single file in
 the chosen format (mp4 by default). Streams are copied as-is, never
@@ -48,15 +45,25 @@ re-encoded, and no external program is needed.
 
 Only mp3 output and --h264 need ffmpeg, because they re-encode.
 
+A playlist URL (or --playlist with a watch URL that has list=) downloads
+every video of the playlist with the best quality for the chosen format,
+into a folder named after the playlist. Videos already saved there are
+skipped, so running the same command again resumes the playlist.
+
 Examples:
   ytd down https://www.youtube.com/watch?v=aqz-KE-bpKQ
   ytd down https://youtu.be/aqz-KE-bpKQ --best
   ytd down <url> --format webm
   ytd down <url> --audio-only            # m4a
-  ytd down <url> --format opus`,
+  ytd down <url> --format opus
+  ytd down "https://www.youtube.com/playlist?list=PL..." --format mp3
+  ytd down "https://www.youtube.com/watch?v=ID&list=PL..." --playlist --items 1-10`,
 	Args: cobra.ExactArgs(1),
 	Run: func(_ *cobra.Command, args []string) {
 		err := download(args[0])
+		if errors.Is(err, errSomeFailed) {
+			os.Exit(1) // the summary was already printed
+		}
 		if errors.Is(err, ui.ErrAborted) || errors.Is(err, context.Canceled) {
 			out.Fail(ui.ErrAborted)
 			os.Exit(130)
@@ -77,24 +84,49 @@ func init() {
 	f := downCmd.Flags()
 	f.StringVarP(&outputDir, "output-dir", "o", defaultOut, "directory for the final file")
 	f.StringVarP(&fileName, "filename", "f", "", "output file name (default: slugified video title)")
-	f.StringVar(&format, "format", "", "output format: "+strings.Join(videoContainers, ", ")+
-		" (video) or "+strings.Join(audioContainers, ", ")+" (audio only); default mp4, or m4a with --audio-only")
+	f.StringVar(&format, "format", "", "output format: "+strings.Join(downloader.VideoContainers, ", ")+
+		" (video) or "+strings.Join(downloader.AudioContainers, ", ")+" (audio only); default mp4, or m4a with --audio-only")
 	f.BoolVarP(&audioOnly, "audio-only", "a", false, "download only the audio")
 	f.BoolVarP(&pickBest, "best", "b", false, "skip the prompts and pick the best quality")
 	f.StringVarP(&itags, "itag", "i", "", "skip the prompts and pick streams by itag: VIDEO+AUDIO, or AUDIO with --audio-only")
 	f.BoolVar(&forceH264, "h264", false, "re-encode VP9/AV1 video to H.264 so it plays everywhere (needs ffmpeg, slower)")
 	f.IntVarP(&connections, "connections", "c", 8, "parallel connections per download")
 	f.StringVarP(&tmpDir, "tmp-dir", "t", os.TempDir(), "directory for temporary files")
+	f.BoolVar(&playlist, "playlist", false, "download the whole playlist of a watch URL that has list=")
+	f.BoolVar(&noPlaylistDir, "no-playlist-dir", false, "save playlist videos directly in --output-dir instead of a sub-folder")
+	f.StringVar(&items, "items", "", "playlist positions to download, e.g. 1-10,15 (default: all)")
 	rootCmd.AddCommand(downCmd)
 }
 
 func download(url string) error {
 	start := time.Now()
-	id, err := youtube.ExtractVideoID(url)
+	// Preserve single-video validation order, including its error output.
+	if !playlist && !youtube.IsPlaylistPage(url) {
+		if _, err := youtube.ExtractVideoID(url); err != nil {
+			return err
+		}
+	}
+	container, err := downloader.ResolveContainer(format, fileName, audioOnly, forceH264)
 	if err != nil {
 		return err
 	}
-	container, err := resolveContainer()
+	audioOnly = slices.Contains(downloader.AudioContainers, container)
+
+	if playlist || youtube.IsPlaylistPage(url) {
+		listID, err := youtube.ExtractPlaylistID(url)
+		if err != nil {
+			if playlist {
+				return fmt.Errorf("--playlist needs a URL with a list= parameter: %w", err)
+			}
+			return err
+		}
+		return downloadPlaylist(listID, container)
+	}
+	if items != "" || noPlaylistDir {
+		return errors.New("--items and --no-playlist-dir only apply to playlists (add --playlist to download the list of a watch URL)")
+	}
+
+	id, err := youtube.ExtractVideoID(url)
 	if err != nil {
 		return err
 	}
@@ -112,100 +144,27 @@ func download(url string) error {
 	}
 	out.Info(video.Title, video.Author, video.Duration)
 
-	transcode := container == "mp3" || forceH264
+	opts := options(container, outputDir)
 	wantVideo, wantAudio, err := parseItags(itags)
 	if err != nil {
 		return err
 	}
 	var vf *youtube.Format
 	if !audioOnly {
-		v, err := chooseVideo(video, container, transcode, wantVideo)
+		v, err := chooseVideo(video, opts, wantVideo)
 		if err != nil {
 			return err
 		}
 		vf = &v
 	}
-	af, err := chooseAudio(video, container, transcode, wantAudio)
+	af, err := chooseAudio(video, opts, wantAudio)
 	if err != nil {
 		return err
 	}
-	// --h264 with a stream that already is H.264 needs no re-encode.
-	if vf != nil && forceH264 && vf.Codec == "h264" && media.Supports(container, af.Codec, af.Ext) {
-		transcode = false
-	}
-	if transcode {
-		if err := ffmpeg.CheckInstalled(); err != nil {
-			return fmt.Errorf("%s output needs ffmpeg to re-encode: %w", container, err)
-		}
-	}
 
-	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
-		return err
-	}
-	workDir, err := os.MkdirTemp(tmpDir, "ytd-")
+	output, err := downloader.Run(ctx, client, video, vf, af, opts, &trailReporter{container: container})
 	if err != nil {
 		return err
-	}
-	defer os.RemoveAll(workDir)
-
-	var jobs []youtube.Job
-	var sources []media.Source
-	if vf != nil {
-		p := filepath.Join(workDir, "video."+vf.Ext)
-		jobs = append(jobs, youtube.Job{Format: *vf, Path: p})
-		sources = append(sources, media.Source{Path: p, Ext: vf.Ext})
-	}
-	audioPath := filepath.Join(workDir, "audio."+af.Ext)
-	jobs = append(jobs, youtube.Job{Format: af, Path: audioPath})
-	sources = append(sources, media.Source{Path: audioPath, Ext: af.Ext})
-
-	var total int64
-	for _, j := range jobs {
-		total += j.Format.Size
-	}
-	bar := out.StartProgress("Downloading")
-	if err := client.Download(ctx, jobs, bar.Bytes); err != nil {
-		bar.Fail()
-		return err
-	}
-	bar.Done("Downloaded", fmt.Sprintf("%s in %.1fs", utils.FormatSize(total), bar.Elapsed().Seconds()))
-
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return err
-	}
-	output := outputPath(video, container)
-	meta := media.Meta{Title: video.Title, Artist: video.Author}
-
-	if transcode {
-		bar := out.StartProgress("Re-encoding with ffmpeg")
-		job := ffmpeg.Job{
-			AudioPath:  audioPath,
-			AudioCodec: af.Codec,
-			Container:  container,
-			ForceH264:  forceH264,
-			Title:      meta.Title,
-			Artist:     meta.Artist,
-			Output:     output,
-			Progress:   func(done time.Duration) { bar.Media(done, video.Duration) },
-		}
-		if vf != nil {
-			job.VideoPath = sources[0].Path
-			job.VideoCodec = vf.Codec
-			job.VideoBitrate = float64(vf.Bitrate) / 1000
-		}
-		if err := ffmpeg.Run(ctx, job); err != nil {
-			bar.Fail()
-			os.Remove(output)
-			return err
-		}
-		bar.Done("Re-encoded", fmt.Sprintf("in %.1fs", bar.Elapsed().Seconds()))
-	} else {
-		stopTask := out.Task("Muxing into "+container, "Muxed into "+container)
-		err := media.Mux(output, container, sources, meta)
-		stopTask(err)
-		if err != nil {
-			return fmt.Errorf("writing %s: %w", container, err)
-		}
 	}
 
 	var size int64
@@ -216,92 +175,53 @@ func download(url string) error {
 	return nil
 }
 
-// resolveContainer picks the output format from --format, the --filename
-// extension, or the default, and reconciles it with --audio-only.
-func resolveContainer() (string, error) {
-	isKnown := func(c string) bool {
-		return slices.Contains(videoContainers, c) || slices.Contains(audioContainers, c)
+func options(container, dir string) downloader.Options {
+	return downloader.Options{
+		Container: container,
+		ForceH264: forceH264,
+		OutputDir: dir,
+		TmpDir:    tmpDir,
+		FileName:  fileName,
 	}
-	c := strings.ToLower(strings.TrimPrefix(format, "."))
-	if c == "" {
-		if ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(fileName), ".")); isKnown(ext) {
-			c = ext
-		}
-	}
-	if c == "" {
-		if audioOnly {
-			return "m4a", nil
-		}
-		return "mp4", nil
-	}
+}
 
+// trailReporter shows each stage of a single download as its own step.
+type trailReporter struct {
+	container string
+	bar       *ui.Progress
+	total     int64
+	stopTask  func(error)
+}
+
+func (r *trailReporter) Begin(s downloader.Stage) {
+	switch s {
+	case downloader.StageDownload:
+		r.bar = out.StartProgress("Downloading")
+	case downloader.StageTranscode:
+		r.bar = out.StartProgress("Re-encoding with ffmpeg")
+	case downloader.StageMux:
+		r.stopTask = out.Task("Muxing into "+r.container, "Muxed into "+r.container)
+	}
+}
+
+func (r *trailReporter) Bytes(done, total int64) {
+	r.total = total
+	r.bar.Bytes(done, total)
+}
+
+func (r *trailReporter) Media(done, total time.Duration) { r.bar.Media(done, total) }
+
+func (r *trailReporter) End(s downloader.Stage, err error) {
 	switch {
-	case slices.Contains(audioContainers, c):
-		audioOnly = true // e.g. --format mp3 implies audio only
-	case slices.Contains(videoContainers, c):
-		if audioOnly {
-			return "", fmt.Errorf("--audio-only needs an audio format (%s), got %q", strings.Join(audioContainers, ", "), c)
-		}
-	default:
-		return "", fmt.Errorf("unsupported format %q (use one of: %s, %s)", c,
-			strings.Join(videoContainers, ", "), strings.Join(audioContainers, ", "))
+	case s == downloader.StageMux:
+		r.stopTask(err)
+	case err != nil:
+		r.bar.Fail()
+	case s == downloader.StageDownload:
+		r.bar.Done("Downloaded", fmt.Sprintf("%s in %.1fs", utils.FormatSize(r.total), r.bar.Elapsed().Seconds()))
+	case s == downloader.StageTranscode:
+		r.bar.Done("Re-encoded", fmt.Sprintf("in %.1fs", r.bar.Elapsed().Seconds()))
 	}
-	if forceH264 && audioOnly {
-		return "", errors.New("--h264 has no effect on audio-only downloads")
-	}
-	if forceH264 && c == "webm" {
-		return "", errors.New("--h264 cannot be used with webm (webm only holds VP9/AV1); use mp4 or mkv")
-	}
-	return c, nil
-}
-
-func outputPath(v *youtube.Video, container string) string {
-	name := fileName
-	if name == "" {
-		name = utils.SlugifyFilename(v.Title)
-	}
-	if name == "" {
-		name = v.ID
-	}
-	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
-	if slices.Contains(videoContainers, ext) || slices.Contains(audioContainers, ext) {
-		name = strings.TrimSuffix(name, filepath.Ext(name))
-	}
-
-	// Never overwrite an existing file.
-	path := filepath.Join(outputDir, name+"."+container)
-	for i := 1; ; i++ {
-		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			return path
-		}
-		path = filepath.Join(outputDir, fmt.Sprintf("%s-%d.%s", name, i, container))
-	}
-}
-
-// compatible keeps the formats that can go into container. When ffmpeg
-// re-encodes, every stream is usable.
-func compatible(list []youtube.Format, container string, transcode bool) []youtube.Format {
-	if transcode {
-		return list
-	}
-	var out []youtube.Format
-	for _, f := range list {
-		if media.Supports(container, f.Codec, f.Ext) {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// hidden describes the codecs that were left out of a selector.
-func hidden(all, shown []youtube.Format) string {
-	var labels []string
-	for _, f := range all {
-		if !slices.ContainsFunc(shown, func(s youtube.Format) bool { return s.Itag == f.Itag }) && !slices.Contains(labels, f.CodecLabel()) {
-			labels = append(labels, f.CodecLabel())
-		}
-	}
-	return strings.Join(labels, "/")
 }
 
 // parseItags splits --itag into the requested video and audio itags (0 = not set).
@@ -325,26 +245,11 @@ func parseItags(s string) (video, audio int, err error) {
 	return video, audio, nil
 }
 
-// pickItag returns the format with the given itag from the compatible list.
-func pickItag(all, formats []youtube.Format, itag int, container string) (youtube.Format, error) {
-	for _, f := range formats {
-		if f.Itag == itag {
-			return f, nil
-		}
-	}
-	for _, f := range all {
-		if f.Itag == itag {
-			return youtube.Format{}, fmt.Errorf("itag %d (%s) cannot be saved as %s without re-encoding", itag, f.CodecLabel(), container)
-		}
-	}
-	return youtube.Format{}, fmt.Errorf("itag %d is not available for this video", itag)
-}
-
-func chooseVideo(v *youtube.Video, container string, transcode bool, itag int) (youtube.Format, error) {
-	all := v.VideoFormats()
-	formats := compatible(all, container, transcode)
+func chooseVideo(v *youtube.Video, opts downloader.Options, itag int) (youtube.Format, error) {
+	container := opts.Container
+	all, formats := downloader.VideoChoices(v, opts)
 	if itag != 0 {
-		f, err := pickItag(all, formats, itag, container)
+		f, err := downloader.PickItag(all, formats, itag, container)
 		if err == nil {
 			out.Picked("Video quality", videoRow(f))
 		}
@@ -363,7 +268,7 @@ func chooseVideo(v *youtube.Video, container string, transcode bool, itag int) (
 	}
 	header := fmt.Sprintf("%-14s %-6s %10s %10s  %4s", "QUALITY", "CODEC", "BITRATE", "SIZE", "ITAG")
 	note := ""
-	if h := hidden(all, formats); h != "" {
+	if h := downloader.Hidden(all, formats); h != "" {
 		alt := "webm or mkv"
 		if container != "mp4" {
 			alt = "mkv"
@@ -377,11 +282,11 @@ func chooseVideo(v *youtube.Video, container string, transcode bool, itag int) (
 	return formats[i], nil
 }
 
-func chooseAudio(v *youtube.Video, container string, transcode bool, itag int) (youtube.Format, error) {
-	all := v.AudioFormats()
-	formats := compatible(all, container, transcode && !forceH264)
+func chooseAudio(v *youtube.Video, opts downloader.Options, itag int) (youtube.Format, error) {
+	container := opts.Container
+	all, formats := downloader.AudioChoices(v, opts)
 	if itag != 0 {
-		f, err := pickItag(all, formats, itag, container)
+		f, err := downloader.PickItag(all, formats, itag, container)
 		if err == nil {
 			out.Picked("Audio quality", audioRow(f))
 		}

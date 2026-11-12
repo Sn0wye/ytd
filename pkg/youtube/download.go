@@ -18,6 +18,10 @@ const chunkSize = 10 << 20
 
 const maxAttempts = 5
 
+// ErrForbidden is returned when googlevideo refuses a stream URL. Fetching
+// the video info again gives fresh URLs that usually work.
+var ErrForbidden = errors.New("YouTube refused the download (HTTP 403); the stream URL may have expired, try again")
+
 // Job is one stream to download into Path.
 type Job struct {
 	Format Format
@@ -148,7 +152,7 @@ func (c *Client) fetchChunk(ctx context.Context, ch chunk, done *atomic.Int64) e
 		}
 		var se *statusError
 		if errors.As(err, &se) && se.code == http.StatusForbidden {
-			return fmt.Errorf("YouTube refused the download (HTTP 403); the stream URL may have expired, try again")
+			return ErrForbidden
 		}
 		if err == nil {
 			err = io.ErrUnexpectedEOF

@@ -1,6 +1,8 @@
 package ffmpeg
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -71,6 +73,35 @@ func TestProgressTime(t *testing.T) {
 		got, ok := progressTime(c.line)
 		if got != c.want || ok != c.ok {
 			t.Errorf("progressTime(%q) = %v, %v; want %v, %v", c.line, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestWingetFFmpeg(t *testing.T) {
+	if got := wingetFFmpeg(""); got != "" {
+		t.Errorf("empty LOCALAPPDATA: %q", got)
+	}
+	dir := t.TempDir()
+	if got := wingetFFmpeg(dir); got != "" {
+		t.Errorf("nothing installed: %q", got)
+	}
+	bin := filepath.Join(dir, "Microsoft", "WinGet", "Packages", "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe", "ffmpeg-9.0.2-full_build", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(bin, "ffmpeg.exe")
+	if err := os.WriteFile(exe, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := wingetFFmpeg(dir); got != exe {
+		t.Errorf("package folder: got %q, want %q", got, exe)
+	}
+}
+
+func TestInstallHint(t *testing.T) {
+	for goos, want := range map[string]string{"windows": "winget", "darwin": "brew", "linux": "apt"} {
+		if got := InstallHint(goos); !strings.Contains(got, want) {
+			t.Errorf("InstallHint(%q) = %q", goos, got)
 		}
 	}
 }

@@ -1,0 +1,173 @@
+{
+ "metadata": {
+  "playlistMetadataRenderer": {
+   "title": "Uploads from Preto no Branco"
+  }
+ },
+ "contents": {
+  "twoColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "content": {
+       "sectionListRenderer": {
+        "contents": [
+         {
+          "itemSectionRenderer": {
+           "contents": [
+            {
+             "lockupViewModel": {
+              "contentImage": {
+               "thumbnailViewModel": {
+                "overlays": [
+                 {
+                  "thumbnailBottomOverlayViewModel": {
+                   "badges": [
+                    {
+                     "thumbnailBadgeViewModel": {
+                      "text": "1:00"
+                     }
+                    }
+                   ]
+                  }
+                 }
+                ]
+               }
+              },
+              "metadata": {
+               "lockupMetadataViewModel": {
+                "title": {
+                 "content": "Adore a Jesus com a gente 🙌🏾🤎"
+                }
+               }
+              },
+              "contentId": "6H54Xx9U6uk",
+              "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+             }
+            },
+            {
+             "lockupViewModel": {
+              "contentImage": {
+               "thumbnailViewModel": {
+                "overlays": [
+                 {
+                  "thumbnailBottomOverlayViewModel": {
+                   "badges": [
+                    {
+                     "thumbnailBadgeViewModel": {
+                      "text": "1:00"
+                     }
+                    }
+                   ]
+                  }
+                 }
+                ]
+               }
+              },
+              "metadata": {
+               "lockupMetadataViewModel": {
+                "title": {
+                 "content": "Somos gratos por essa graça maravilhosa, que nos alcança todos os dias 🤎"
+                }
+               }
+              },
+              "contentId": "n8QLOCqyRLw",
+              "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+             }
+            },
+            {
+             "lockupViewModel": {
+              "contentImage": {
+               "thumbnailViewModel": {
+                "overlays": [
+                 {
+                  "thumbnailBottomOverlayViewModel": {
+                   "badges": [
+                    {
+                     "thumbnailBadgeViewModel": {
+                      "text": "0:49"
+                     }
+                    }
+                   ]
+                  }
+                 }
+                ]
+               }
+              },
+              "metadata": {
+               "lockupMetadataViewModel": {
+                "title": {
+                 "content": "Aquieta nossa alma, Jesus 🤍"
+                }
+               }
+              },
+              "contentId": "NNsXXC9vB3c",
+              "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+             }
+            },
+            {
+             "lockupViewModel": {
+              "contentImage": {
+               "thumbnailViewModel": {
+                "overlays": [
+                 {
+                  "thumbnailBottomOverlayViewModel": {
+                   "badges": [
+                    {
+                     "thumbnailBadgeViewModel": {
+                      "text": "0:49"
+                     }
+                    }
+                   ]
+                  }
+                 }
+                ]
+               }
+              },
+              "metadata": {
+               "lockupMetadataViewModel": {
+                "title": {
+                 "content": "[Private video]"
+                }
+               }
+              },
+              "contentId": "AAAAAAAAAAA",
+              "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+             }
+            },
+            {
+             "continuationItemViewModel": {
+              "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+              "continuationCommand": {
+               "innertubeCommand": {
+                "continuationCommand": {
+                 "token": "4qmFsgJtEhpWTFVVbHpKaXdQYjNLVW5tUUVzY0J0RXBSQRo0Q0FGNkhsQlVPa05IVVdsRlJVMDBVVlJOTWs1NmF6RlJWRUV3VFhwS1JsSnFTUSUzRCUzRJoCGFVVbHpKaXdQYjNLVW5tUUVzY0J0RXBSQQ%3D%3D",
+                 "request": "CONTINUATION_REQUEST_TYPE_BROWSE"
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         },
+         {
+          "continuationItemViewModel": {
+           "continuationCommand": {
+            "innertubeCommand": {
+             "continuationCommand": {
+              "token": "SECTION-LEVEL-TOKEN-MUST-BE-IGNORED"
+             }
+            }
+           }
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  }
+ }
+}
