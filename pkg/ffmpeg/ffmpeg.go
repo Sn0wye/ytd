@@ -9,16 +9,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Binary is the ffmpeg executable name or path.
 var Binary = "ffmpeg"
+
+var binaryMu sync.Mutex
 
 // VideoContainers are the output formats that keep video and audio.
 var VideoContainers = []string{"mp4", "mkv", "webm"}
@@ -170,12 +175,59 @@ func audioArgs(j Job) []string {
 	}
 }
 
-// CheckInstalled returns a helpful error when ffmpeg is missing.
+// CheckInstalled returns a helpful error when ffmpeg is missing. On Windows
+// it also looks where winget installs ffmpeg, because `winget install` only
+// updates PATH for programs started afterwards (and never for Explorer
+// windows that were already open).
 func CheckInstalled() error {
-	if _, err := exec.LookPath(Binary); err != nil {
-		return errors.New("ffmpeg not found in PATH (install it with `brew install ffmpeg`)")
+	binaryMu.Lock()
+	defer binaryMu.Unlock()
+	if _, err := exec.LookPath(Binary); err == nil {
+		return nil
 	}
-	return nil
+	if runtime.GOOS == "windows" && Binary == "ffmpeg" {
+		if p := wingetFFmpeg(os.Getenv("LOCALAPPDATA")); p != "" {
+			Binary = p
+			return nil
+		}
+	}
+	return errors.New("ffmpeg not found in PATH (install it with `" + InstallHint(runtime.GOOS) + "`)")
+}
+
+// wingetFFmpeg returns ffmpeg.exe from winget's links folder or package
+// folders under localAppData, or "" if there is none.
+func wingetFFmpeg(localAppData string) string {
+	if localAppData == "" {
+		return ""
+	}
+	winget := filepath.Join(localAppData, "Microsoft", "WinGet")
+	candidates := []string{filepath.Join(winget, "Links", "ffmpeg.exe")}
+	for _, pattern := range []string{
+		filepath.Join(winget, "Packages", "*FFmpeg*", "*", "bin", "ffmpeg.exe"),
+		filepath.Join(winget, "Packages", "*FFmpeg*", "bin", "ffmpeg.exe"),
+	} {
+		matches, _ := filepath.Glob(pattern)
+		slices.Sort(matches)
+		slices.Reverse(matches) // newest version first
+		candidates = append(candidates, matches...)
+	}
+	for _, p := range candidates {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+// InstallHint is the usual command to install ffmpeg on goos.
+func InstallHint(goos string) string {
+	switch goos {
+	case "windows":
+		return "winget install Gyan.FFmpeg"
+	case "darwin":
+		return "brew install ffmpeg"
+	}
+	return "sudo apt install ffmpeg"
 }
 
 // Run executes the job, reporting progress to j.Progress. ffmpeg's errors
@@ -185,7 +237,10 @@ func Run(ctx context.Context, j Job) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, Binary, args...)
+	binaryMu.Lock()
+	binary := Binary
+	binaryMu.Unlock()
+	cmd := exec.CommandContext(ctx, binary, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()
