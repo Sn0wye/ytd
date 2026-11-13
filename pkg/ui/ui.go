@@ -126,9 +126,39 @@ func (u *UI) Task(active, done string) func(error) {
 
 // Info adds the video's details under the current step.
 func (u *UI) Info(title, author string, d time.Duration) {
+	u.Describe(title, author+" · "+Clock(d))
+}
+
+// Describe adds a bold title and a dim detail line under the current step.
+func (u *UI) Describe(title, detail string) {
 	u.println(u.rail(), "  ", u.st.bold.Render(title))
-	u.println(u.rail(), "  ", u.st.dim.Render(author+" · "+Clock(d)))
+	u.println(u.rail(), "  ", u.st.dim.Render(detail))
 	u.gapNext = true
+}
+
+// Warn adds an error line under the step that just failed, without closing
+// the trail, e.g. for one failed entry of a playlist.
+func (u *UI) Warn(msg string) {
+	for _, line := range strings.Split(msg, "\n") {
+		u.println(u.rail(), "  ", u.st.accent.Render(line))
+	}
+	u.gapNext = true
+}
+
+// Finish closes the trail with a summary: title in green when ok, in the
+// accent colour otherwise, and a dim detail line below.
+func (u *UI) Finish(ok bool, title, detail string) {
+	u.gap()
+	style := u.st.ok
+	if !ok {
+		style = u.st.accent
+	}
+	u.println(u.st.rail.Render(glyphClose), "  ", style.Render(title))
+	if detail != "" {
+		for _, line := range strings.Split(detail, "\n") {
+			u.println("   ", u.st.dim.Render(line))
+		}
+	}
 }
 
 // Picked records a choice made without the picker (--best, --itag).

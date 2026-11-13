@@ -1,8 +1,8 @@
 # ytd
 
-Download YouTube videos from the terminal. You choose the video quality and the
-audio quality from a list, and ytd hands you back one file in the format you
-asked for.
+Download YouTube videos and playlists from the terminal or from a simple
+graphical interface. You choose the video quality and the audio quality from a
+list, and ytd hands you back one file in the format you asked for.
 
 - **No login, no API key, no cookies.**
 - **No other programs needed.** Extraction, parallel download and muxing are
@@ -32,6 +32,8 @@ go install github.com/Sn0wye/ytd@latest
 ```
 
 Windows: download the zip from [Releases](https://github.com/Sn0wye/ytd/releases).
+Double-click `ytd.exe` to open the [graphical interface](#graphical-interface),
+or run it from a terminal.
 
 ## Usage
 
@@ -45,10 +47,13 @@ ytd down <url> --audio-only                               # m4a (AAC)
 ytd down <url> --format opus                              # Opus audio
 ytd down <url> --format mp3                               # needs ffmpeg
 ytd down <url> --h264                                     # VP9/AV1 -> H.264, needs ffmpeg
+ytd down 'https://www.youtube.com/playlist?list=PL...' --format mp3   # a whole playlist
+ytd gui                                                   # graphical interface
 ```
 
 Accepted inputs: `watch?v=`, `youtu.be/`, `shorts/`, `embed/`, `live/`,
-`music.youtube.com` links, or a bare 11-character video ID.
+`music.youtube.com` links, or a bare 11-character video ID. For playlists:
+`playlist?list=` links (also on `music.youtube.com`) or a bare playlist ID.
 
 Quote URLs that contain `?` or `&`. Without quotes, zsh treats `?` as a
 filename pattern and stops with `no matches found` before ytd runs, and any
@@ -70,6 +75,9 @@ alias ytd='noglob ytd'
 | `-c, --connections` | `8` | parallel connections |
 | `--h264` | | re-encode to H.264 for old players |
 | `-t, --tmp-dir` | system temp | where streams are stored before muxing |
+| `--playlist` | | with a `watch?v=…&list=…` URL, download the whole playlist instead of the one video |
+| `--items` | all | playlist positions to download, e.g. `1-10,15` or `20-` |
+| `--no-playlist-dir` | | save playlist videos directly in `--output-dir` instead of a sub-folder |
 
 The selectors only list streams that fit the chosen format without
 re-encoding:
@@ -85,6 +93,48 @@ re-encoding:
 Want 1440p/4K VP9 or Opus audio? Use `--format webm` or `--format mkv`.
 
 Output files get title and artist metadata and never overwrite an existing file.
+
+### Playlists
+
+```sh
+ytd down 'https://www.youtube.com/playlist?list=PL_Q15fKxrBb4pxTp2zQm6zZU3-h4dlm05' --format mp3
+ytd down 'https://www.youtube.com/watch?v=LYsaKn8FRhc&list=PL_Q15fKxrBb4pxTp2zQm6zZU3-h4dlm05' --playlist --items 1-10
+```
+
+- Every video gets the best quality that fits the format, without prompts
+  (`--itag` and `--filename` cannot be used, since they are per video).
+- Files go into a folder named after the playlist inside `--output-dir`.
+- Videos already saved in that folder are skipped, so running the same
+  command again resumes an interrupted playlist.
+- A video that fails does not stop the others. A stream URL that expires
+  (HTTP 403) is retried once with fresh URLs. At the end ytd prints how many
+  were saved, skipped and failed, lists the failed ones and exits with 1 if
+  any failed.
+- A `watch?v=…&list=…` link still downloads just that video unless you add
+  `--playlist`. Mixes (`list=RD…`) are generated per viewer and cannot be
+  downloaded as a playlist.
+
+## Graphical interface
+
+```sh
+ytd gui                      # opens the interface in your browser
+ytd gui --port 8765 --no-open
+```
+
+`ytd gui` starts a small web page served by ytd itself and opens it in your
+default browser. Paste a video or playlist link, pick the format (and, for a
+single video, the video and audio quality), choose the folder and follow the
+downloads in the queue, with cancel and "show in folder" buttons. On Windows,
+double-clicking `ytd.exe` does the same.
+
+It needs no extra program or library: the page is built into the ytd binary.
+ytd stops when you press Ctrl+C, click Quit, or about 30 seconds after the
+last ytd tab is closed with nothing left to download.
+
+The server only listens on `127.0.0.1`. Every request must carry the random
+token that is part of the address ytd opens, and requests with another
+`Host` or `Origin` are refused, so other websites cannot use it to download
+files to your computer.
 
 ## How it works
 
@@ -151,6 +201,7 @@ YouTube ("Sign in to confirm you're not a bot") for both tools; space the runs o
   JavaScript) and no live streams.
 - Age-restricted and members-only videos need a login, which ytd does not do.
 - "Made for kids" videos are not served to the visionOS client.
+- Private, deleted and members-only videos of a playlist are left out.
 - YouTube changes its clients from time to time. If downloads start failing,
   compare `pkg/youtube/client.go` with `INNERTUBE_CLIENTS` in yt-dlp's
   `yt_dlp/extractor/youtube/_base.py`.

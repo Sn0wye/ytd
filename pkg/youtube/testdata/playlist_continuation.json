@@ -1,0 +1,100 @@
+{
+ "onResponseReceivedActions": [
+  {
+   "appendContinuationItemsAction": {
+    "continuationItems": [
+     {
+      "lockupViewModel": {
+       "contentImage": {
+        "thumbnailViewModel": {
+         "overlays": [
+          {
+           "thumbnailBottomOverlayViewModel": {
+            "badges": [
+             {
+              "thumbnailBadgeViewModel": {
+               "text": "0:27"
+              }
+             }
+            ]
+           }
+          }
+         ]
+        }
+       },
+       "metadata": {
+        "lockupMetadataViewModel": {
+         "title": {
+          "content": "Diga sim, aquilo que o Senhor tem te pedido."
+         }
+        }
+       },
+       "contentId": "GldASXOONuE",
+       "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+      }
+     },
+     {
+      "lockupViewModel": {
+       "contentImage": {
+        "thumbnailViewModel": {
+         "overlays": [
+          {
+           "thumbnailBottomOverlayViewModel": {
+            "badges": [
+             {
+              "thumbnailBadgeViewModel": {
+               "text": "0:32"
+              }
+             }
+            ]
+           }
+          }
+         ]
+        }
+       },
+       "metadata": {
+        "lockupMetadataViewModel": {
+         "title": {
+          "content": "Mesmo nos dias mais difíceis, Deus continua presente."
+         }
+        }
+       },
+       "contentId": "V09cEBT9YQY",
+       "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+      }
+     },
+     {
+      "lockupViewModel": {
+       "contentImage": {
+        "thumbnailViewModel": {
+         "overlays": [
+          {
+           "thumbnailBottomOverlayViewModel": {
+            "badges": [
+             {
+              "thumbnailBadgeViewModel": {
+               "text": "1:00"
+              }
+             }
+            ]
+           }
+          }
+         ]
+        }
+       },
+       "metadata": {
+        "lockupMetadataViewModel": {
+         "title": {
+          "content": "Adore a Jesus com a gente 🙌🏾🤎"
+         }
+        }
+       },
+       "contentId": "6H54Xx9U6uk",
+       "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+      }
+     }
+    ]
+   }
+  }
+ ]
+}
