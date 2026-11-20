@@ -66,7 +66,7 @@ def clean_probes(values):
 
 def command(tool, a, d):
     if tool == "ytd":
-        return [a.ytd, "down", a.url, "--itag", a.itags, "--format", a.format, "-o", d]
+        return [a.ytd, a.url, "--itag", a.itags, "--format", a.format, "-o", d]
     return ["yt-dlp", "--ignore-config", "--no-warnings", "--newline", "-f", a.itags,
             "--merge-output-format", a.format, "-o", os.path.join(d, "out.%(ext)s"), a.url]
 

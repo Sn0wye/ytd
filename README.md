@@ -36,16 +36,16 @@ Windows: download the zip from [Releases](https://github.com/Sn0wye/ytd/releases
 ## Usage
 
 ```sh
-ytd down 'https://www.youtube.com/watch?v=aqz-KE-bpKQ'    # pick quality, get an mp4
-ytd down aqz-KE-bpKQ                                      # same, video ID only
-ytd down https://youtu.be/aqz-KE-bpKQ --best              # no prompts, best quality
-ytd down <url> --format webm                              # VP9/AV1 + Opus
-ytd down <url> --format mkv                               # any codec combination
-ytd down <url> --audio-only                               # m4a (AAC)
-ytd down <url> --format opus                              # Opus audio
-ytd down <url> --format mp3                               # needs ffmpeg
-ytd down <url> --h264                                     # VP9/AV1 -> H.264, needs ffmpeg
-ytd down 'https://www.youtube.com/playlist?list=PL...' --format mp3   # a whole playlist
+ytd 'https://www.youtube.com/watch?v=aqz-KE-bpKQ'    # pick quality, get an mp4
+ytd aqz-KE-bpKQ                                      # same, video ID only
+ytd https://youtu.be/aqz-KE-bpKQ --best              # no prompts, best quality
+ytd <url> --format webm                              # VP9/AV1 + Opus
+ytd <url> --format mkv                               # any codec combination
+ytd <url> --audio-only                               # m4a (AAC)
+ytd <url> --format opus                              # Opus audio
+ytd <url> --format mp3                               # needs ffmpeg
+ytd <url> --h264                                     # VP9/AV1 -> H.264, needs ffmpeg
+ytd 'https://www.youtube.com/playlist?list=PL...' --format mp3   # a whole playlist
 ```
 
 Accepted inputs: `watch?v=`, `youtu.be/`, `shorts/`, `embed/`, `live/`,
@@ -94,8 +94,8 @@ Output files get title and artist metadata and never overwrite an existing file.
 ### Playlists
 
 ```sh
-ytd down 'https://www.youtube.com/playlist?list=PL...' --format mp3
-ytd down 'https://www.youtube.com/watch?v=ID&list=PL...' --playlist --items 1-10
+ytd 'https://www.youtube.com/playlist?list=PL...' --format mp3
+ytd 'https://www.youtube.com/watch?v=ID&list=PL...' --playlist --items 1-10
 ```
 
 - ytd lists the videos in a checklist with all of them selected. Press

@@ -35,13 +35,15 @@ var (
 	out           = ui.New()
 )
 
-var downCmd = &cobra.Command{
-	Use:   "down <url>",
-	Short: "Download a YouTube video or playlist, choosing video and audio quality",
-	Long: `Download a YouTube video. You pick the video quality and the audio quality,
-ytd downloads both streams in parallel and merges them into a single file in
-the chosen format (mp4 by default). Streams are copied as-is, never
-re-encoded, and no external program is needed.
+// rootCmd downloads the URL given as its argument, so "ytd <url>" needs no
+// subcommand.
+var rootCmd = &cobra.Command{
+	Use:   "ytd <url>",
+	Short: "YTD - A youtube video/audio downloader",
+	Long: `YTD downloads YouTube videos and audio, letting you pick the video and
+audio quality. ytd downloads both streams in parallel and merges them into a
+single file in the chosen format (mp4 by default). Streams are copied as-is,
+never re-encoded, and no external program is needed.
 
 Only mp3 output and --h264 need ffmpeg, because they re-encode.
 
@@ -50,31 +52,46 @@ every video of the playlist with the best quality for the chosen format,
 into a folder named after the playlist. Videos already saved there are
 skipped, so running the same command again resumes the playlist. Without
 --items or --best, a checklist with every video selected lets you untick
-the ones to leave out.
-
-Examples:
-  ytd down https://www.youtube.com/watch?v=aqz-KE-bpKQ
-  ytd down https://youtu.be/aqz-KE-bpKQ --best
-  ytd down <url> --format webm
-  ytd down <url> --audio-only            # m4a
-  ytd down <url> --format opus
-  ytd down "https://www.youtube.com/playlist?list=PL..." --format mp3
-  ytd down "https://www.youtube.com/watch?v=ID&list=PL..." --playlist --items 1-10`,
-	Args: cobra.ExactArgs(1),
-	Run: func(_ *cobra.Command, args []string) {
-		err := download(args[0])
-		if errors.Is(err, errSomeFailed) {
-			os.Exit(1) // the summary was already printed
+the ones to leave out.`,
+	Example: `  ytd https://www.youtube.com/watch?v=aqz-KE-bpKQ
+  ytd https://youtu.be/aqz-KE-bpKQ --best
+  ytd <url> --format webm
+  ytd <url> --audio-only            # m4a
+  ytd <url> --format opus
+  ytd "https://www.youtube.com/playlist?list=PL..." --format mp3
+  ytd "https://www.youtube.com/watch?v=ID&list=PL..." --playlist --items 1-10`,
+	Args: cobra.MaximumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		if len(args) == 0 {
+			_ = cmd.Help()
+			return
 		}
-		if errors.Is(err, ui.ErrAborted) || errors.Is(err, context.Canceled) {
-			out.Fail(ui.ErrAborted)
-			os.Exit(130)
-		}
-		if err != nil {
-			out.Fail(err)
-			os.Exit(1)
-		}
+		runDownload(args[0])
 	},
+}
+
+// downCmd keeps "ytd down <url>" working for existing scripts.
+var downCmd = &cobra.Command{
+	Use:    "down <url>",
+	Short:  "Same as ytd <url>",
+	Hidden: true,
+	Args:   cobra.ExactArgs(1),
+	Run:    func(_ *cobra.Command, args []string) { runDownload(args[0]) },
+}
+
+func runDownload(url string) {
+	err := download(url)
+	if errors.Is(err, errSomeFailed) {
+		os.Exit(1) // the summary was already printed
+	}
+	if errors.Is(err, ui.ErrAborted) || errors.Is(err, context.Canceled) {
+		out.Fail(ui.ErrAborted)
+		os.Exit(130)
+	}
+	if err != nil {
+		out.Fail(err)
+		os.Exit(1)
+	}
 }
 
 func init() {
@@ -83,7 +100,7 @@ func init() {
 		defaultOut = filepath.Join(home, "Downloads")
 	}
 
-	f := downCmd.Flags()
+	f := rootCmd.Flags()
 	f.StringVarP(&outputDir, "output-dir", "o", defaultOut, "directory for the final file")
 	f.StringVarP(&fileName, "filename", "f", "", "output file name (default: slugified video title)")
 	f.StringVar(&format, "format", "", "output format: "+strings.Join(downloader.VideoContainers, ", ")+
@@ -97,6 +114,7 @@ func init() {
 	f.BoolVar(&playlist, "playlist", false, "download the whole playlist of a watch URL that has list=")
 	f.BoolVar(&noPlaylistDir, "no-playlist-dir", false, "save playlist videos directly in --output-dir instead of a sub-folder")
 	f.StringVar(&items, "items", "", "playlist positions to download, e.g. 1-10,15 (default: all)")
+	downCmd.Flags().AddFlagSet(f)
 	rootCmd.AddCommand(downCmd)
 }
 
