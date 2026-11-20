@@ -1,8 +1,8 @@
 # ytd
 
-Download YouTube videos from the terminal. You choose the video quality and the
-audio quality from a list, and ytd hands you back one file in the format you
-asked for.
+Download YouTube videos and playlists from the terminal. You choose the video
+quality and the audio quality from a list, and ytd hands you back one file in
+the format you asked for.
 
 - **No login, no API key, no cookies.**
 - **No other programs needed.** Extraction, parallel download and muxing are
@@ -45,10 +45,12 @@ ytd down <url> --audio-only                               # m4a (AAC)
 ytd down <url> --format opus                              # Opus audio
 ytd down <url> --format mp3                               # needs ffmpeg
 ytd down <url> --h264                                     # VP9/AV1 -> H.264, needs ffmpeg
+ytd down 'https://www.youtube.com/playlist?list=PL...' --format mp3   # a whole playlist
 ```
 
 Accepted inputs: `watch?v=`, `youtu.be/`, `shorts/`, `embed/`, `live/`,
-`music.youtube.com` links, or a bare 11-character video ID.
+`music.youtube.com` links, or a bare 11-character video ID. For playlists:
+`playlist?list=` links (also on `music.youtube.com`) or a bare playlist ID.
 
 Quote URLs that contain `?` or `&`. Without quotes, zsh treats `?` as a
 filename pattern and stops with `no matches found` before ytd runs, and any
@@ -70,6 +72,9 @@ alias ytd='noglob ytd'
 | `-c, --connections` | `8` | parallel connections |
 | `--h264` | | re-encode to H.264 for old players |
 | `-t, --tmp-dir` | system temp | where streams are stored before muxing |
+| `--playlist` | | with a `watch?v=…&list=…` URL, download the whole playlist instead of the one video |
+| `--items` | all | playlist positions to download, e.g. `1-10,15` or `20-` |
+| `--no-playlist-dir` | | save playlist videos directly in `--output-dir` instead of a sub-folder |
 
 The selectors only list streams that fit the chosen format without
 re-encoding:
@@ -85,6 +90,26 @@ re-encoding:
 Want 1440p/4K VP9 or Opus audio? Use `--format webm` or `--format mkv`.
 
 Output files get title and artist metadata and never overwrite an existing file.
+
+### Playlists
+
+```sh
+ytd down 'https://www.youtube.com/playlist?list=PL...' --format mp3
+ytd down 'https://www.youtube.com/watch?v=ID&list=PL...' --playlist --items 1-10
+```
+
+- Every video gets the best quality that fits the format, without prompts
+  (`--itag` and `--filename` cannot be used, since they are per video).
+- Files go into a folder named after the playlist inside `--output-dir`.
+- Videos already saved in that folder are skipped, so running the same
+  command again resumes an interrupted playlist.
+- A video that fails does not stop the others. A stream URL that expires
+  (HTTP 403) is retried once with fresh URLs. At the end ytd prints how many
+  were saved, skipped and failed, lists the failed ones and exits with 1 if
+  any failed.
+- A `watch?v=…&list=…` link still downloads just that video unless you add
+  `--playlist`. Mixes (`list=RD…`) are generated per viewer and cannot be
+  downloaded as a playlist.
 
 ## How it works
 
@@ -151,6 +176,7 @@ YouTube ("Sign in to confirm you're not a bot") for both tools; space the runs o
   JavaScript) and no live streams.
 - Age-restricted and members-only videos need a login, which ytd does not do.
 - "Made for kids" videos are not served to the visionOS client.
+- Private, deleted and members-only videos of a playlist are left out.
 - YouTube changes its clients from time to time. If downloads start failing,
   compare `pkg/youtube/client.go` with `INNERTUBE_CLIENTS` in yt-dlp's
   `yt_dlp/extractor/youtube/_base.py`.

@@ -1,8 +1,8 @@
 // Package downloader turns one YouTube video into one file: it picks the
 // streams that fit the output format, downloads them and muxes them (or
-// re-encodes with ffmpeg for mp3 and --h264). The terminal command and the
-// GUI share it and only differ in how they show progress (Reporter) and how
-// the streams are chosen (prompts, --itag or best).
+// re-encodes with ffmpeg for mp3 and --h264). Single videos and playlist
+// entries share it and only differ in how they show progress (Reporter) and
+// how the streams are chosen (prompts and --itag, or the best ones).
 package downloader
 
 import (
@@ -26,8 +26,8 @@ var (
 	AudioContainers = []string{"m4a", "opus", "mp3"}
 )
 
-// IsKnown reports whether c is a supported output format.
-func IsKnown(c string) bool {
+// isKnown reports whether c is a supported output format.
+func isKnown(c string) bool {
 	return slices.Contains(VideoContainers, c) || slices.Contains(AudioContainers, c)
 }
 
@@ -52,7 +52,7 @@ func (o Options) transcodes() bool { return o.Container == "mp3" || o.ForceH264 
 func ResolveContainer(format, fileName string, audioOnly, h264 bool) (string, error) {
 	c := strings.ToLower(strings.TrimPrefix(format, "."))
 	if c == "" {
-		if ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(fileName), ".")); IsKnown(ext) {
+		if ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(fileName), ".")); isKnown(ext) {
 			c = ext
 		}
 	}
@@ -96,8 +96,8 @@ func AudioChoices(v *youtube.Video, o Options) (all, usable []youtube.Format) {
 	return all, compatible(all, o.Container, o.transcodes() && !o.ForceH264)
 }
 
-// Fits reports whether f can go into container without re-encoding.
-func Fits(f youtube.Format, container string) bool {
+// fits reports whether f can go into container without re-encoding.
+func fits(f youtube.Format, container string) bool {
 	return media.Supports(container, f.Codec, f.Ext)
 }
 
@@ -109,7 +109,7 @@ func compatible(list []youtube.Format, container string, transcode bool) []youtu
 	}
 	var out []youtube.Format
 	for _, f := range list {
-		if Fits(f, container) {
+		if fits(f, container) {
 			out = append(out, f)
 		}
 	}
@@ -142,40 +142,21 @@ func PickItag(all, usable []youtube.Format, itag int, container string) (youtube
 	return youtube.Format{}, fmt.Errorf("itag %d is not available for this video", itag)
 }
 
-// Selection asks for specific streams; 0 means the best usable one.
-type Selection struct {
-	VideoItag, AudioItag int
-}
-
-// Select picks streams without prompting: the requested itags, or the best
-// usable streams. vf is nil for audio-only output.
-func Select(v *youtube.Video, o Options, s Selection) (vf *youtube.Format, af youtube.Format, err error) {
+// Best picks the best usable streams without prompting. vf is nil for
+// audio-only output.
+func Best(v *youtube.Video, o Options) (vf *youtube.Format, af youtube.Format, err error) {
 	if !o.AudioOnly() {
-		all, usable := VideoChoices(v, o)
-		var f youtube.Format
-		switch {
-		case s.VideoItag != 0:
-			f, err = PickItag(all, usable, s.VideoItag, o.Container)
-		case len(usable) == 0:
-			err = fmt.Errorf("no video streams can be saved as %s; try --format mkv", o.Container)
-		default:
-			f = usable[0]
+		_, usable := VideoChoices(v, o)
+		if len(usable) == 0 {
+			return nil, af, fmt.Errorf("no video streams can be saved as %s; try --format mkv", o.Container)
 		}
-		if err != nil {
-			return nil, af, err
-		}
-		vf = &f
+		vf = &usable[0]
 	}
-	all, usable := AudioChoices(v, o)
-	switch {
-	case s.AudioItag != 0:
-		af, err = PickItag(all, usable, s.AudioItag, o.Container)
-	case len(usable) == 0:
-		err = fmt.Errorf("no audio streams can be saved as %s", o.Container)
-	default:
-		af = usable[0]
+	_, usable := AudioChoices(v, o)
+	if len(usable) == 0 {
+		return nil, af, fmt.Errorf("no audio streams can be saved as %s", o.Container)
 	}
-	return vf, af, err
+	return vf, usable[0], nil
 }
 
 // Stage is a step of Run.
@@ -202,7 +183,7 @@ type Reporter interface {
 func Run(ctx context.Context, c *youtube.Client, v *youtube.Video, vf *youtube.Format, af youtube.Format, o Options, r Reporter) (string, error) {
 	transcode := o.transcodes()
 	// --h264 with a stream that already is H.264 needs no re-encode.
-	if vf != nil && o.ForceH264 && vf.Codec == "h264" && Fits(af, o.Container) {
+	if vf != nil && o.ForceH264 && vf.Codec == "h264" && fits(af, o.Container) {
 		transcode = false
 	}
 	if transcode {
@@ -294,58 +275,58 @@ func Name(fileName, title, id string) string {
 		name = id
 	}
 	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
-	if IsKnown(ext) {
+	if isKnown(ext) {
 		name = strings.TrimSuffix(name, filepath.Ext(name))
 	}
 	return name
+}
+
+// numbered is dir/name.container for n == 0 and dir/name-n.container after,
+// the names OutputPath tries in order.
+func numbered(dir, name, container string, n int) string {
+	if n == 0 {
+		return filepath.Join(dir, name+"."+container)
+	}
+	return filepath.Join(dir, fmt.Sprintf("%s-%d.%s", name, n, container))
 }
 
 // OutputPath returns a path in dir that does not exist yet; existing files
 // are never overwritten.
 func OutputPath(dir, fileName, title, id, container string) string {
 	name := Name(fileName, title, id)
-	path := filepath.Join(dir, name+"."+container)
-	for i := 1; ; i++ {
+	for n := 0; ; n++ {
+		path := numbered(dir, name, container, n)
 		if _, err := os.Stat(path); err != nil {
 			// Let the writer report inaccessible or invalid paths instead of looping.
 			return path
 		}
-		path = filepath.Join(dir, fmt.Sprintf("%s-%d.%s", name, i, container))
 	}
 }
 
-// Exists reports whether a file for title was already saved in dir as
-// container, so a playlist can be resumed.
-func Exists(dir, title, id, container string) bool {
-	_, err := os.Stat(filepath.Join(dir, Name("", title, id)+"."+container))
+// Exists reports whether a video named name (see Name) was already saved in
+// dir as container, so a playlist can be resumed. dup counts the earlier
+// videos of the playlist with the same name: they were saved first and took
+// name.container, name-1.container and so on.
+func Exists(dir, name, container string, dup int) bool {
+	_, err := os.Stat(numbered(dir, name, container, dup))
 	return err == nil
 }
 
-// Fetch gets the video and downloads it with the streams chosen by sel. A
-// 403 on the stream URLs is retried once with freshly fetched URLs. onVideo,
-// if set, is called after each successful fetch.
-func Fetch(ctx context.Context, c *youtube.Client, id string, o Options, sel Selection, r Reporter, onVideo func(*youtube.Video)) (string, *youtube.Video, error) {
-	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+// FetchBest gets the video and downloads its best streams for o. A 403 on
+// the stream URLs is retried once with freshly fetched URLs.
+func FetchBest(ctx context.Context, c *youtube.Client, id string, o Options, r Reporter) (string, error) {
+	for attempt := 1; ; attempt++ {
 		v, err := c.GetVideo(ctx, id)
 		if err != nil {
-			return "", nil, err
+			return "", err
 		}
-		if onVideo != nil {
-			onVideo(v)
-		}
-		vf, af, err := Select(v, o, sel)
+		vf, af, err := Best(v, o)
 		if err != nil {
-			return "", v, err
+			return "", err
 		}
 		path, err := Run(ctx, c, v, vf, af, o, r)
-		if err == nil {
-			return path, v, nil
+		if attempt == 2 || !errors.Is(err, youtube.ErrForbidden) {
+			return path, err
 		}
-		if !errors.Is(err, youtube.ErrForbidden) {
-			return "", v, err
-		}
-		lastErr = err
 	}
-	return "", nil, lastErr
 }

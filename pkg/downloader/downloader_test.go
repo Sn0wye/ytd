@@ -70,32 +70,30 @@ func testVideo() *youtube.Video {
 	}}
 }
 
-func TestSelect(t *testing.T) {
+func TestBest(t *testing.T) {
 	v := testVideo()
 
-	vf, af, err := Select(v, Options{Container: "mp4"}, Selection{})
+	vf, af, err := Best(v, Options{Container: "mp4"})
 	if err != nil || vf == nil || vf.Itag != 137 || af.Itag != 140 {
 		t.Errorf("mp4 best: %v %v %v", vf, af.Itag, err)
 	}
-	vf, af, err = Select(v, Options{Container: "webm"}, Selection{})
+	vf, af, err = Best(v, Options{Container: "webm"})
 	if err != nil || vf.Itag != 313 || af.Itag != 251 {
 		t.Errorf("webm best: %v %v %v", vf, af.Itag, err)
 	}
 	// mp3 re-encodes: no video, any audio, best first.
-	vf, af, err = Select(v, Options{Container: "mp3"}, Selection{})
+	vf, af, err = Best(v, Options{Container: "mp3"})
 	if err != nil || vf != nil || af.Itag != 251 {
 		t.Errorf("mp3 best: %v %v %v", vf, af.Itag, err)
 	}
 	// --h264 re-encodes the video, so VP9 is usable, but audio must fit.
-	vf, af, err = Select(v, Options{Container: "mp4", ForceH264: true}, Selection{})
+	vf, af, err = Best(v, Options{Container: "mp4", ForceH264: true})
 	if err != nil || vf.Itag != 313 || af.Itag != 140 {
 		t.Errorf("mp4 h264 best: %v %v %v", vf, af.Itag, err)
 	}
-	if _, _, err := Select(v, Options{Container: "mp4"}, Selection{VideoItag: 313, AudioItag: 140}); err == nil {
-		t.Error("VP9 into mp4 without re-encoding: want error")
-	}
-	if _, _, err := Select(v, Options{Container: "m4a"}, Selection{AudioItag: 999}); err == nil {
-		t.Error("unknown itag: want error")
+	vp9Only := &youtube.Video{Formats: v.Formats[:1]}
+	if _, _, err := Best(vp9Only, Options{Container: "mp4"}); err == nil {
+		t.Error("only VP9 into mp4 without re-encoding: want error")
 	}
 }
 
@@ -105,13 +103,13 @@ func TestOutputPathAndExists(t *testing.T) {
 	if filepath.Base(p) != "big-buck-bunny.mp3" {
 		t.Fatalf("path = %s", p)
 	}
-	if Exists(dir, "Big Buck Bunny!", "aqz-KE-bpKQ", "mp3") {
+	if Exists(dir, "big-buck-bunny", "mp3", 0) {
 		t.Error("Exists before writing")
 	}
 	if err := os.WriteFile(p, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !Exists(dir, "Big Buck Bunny!", "aqz-KE-bpKQ", "mp3") {
+	if !Exists(dir, "big-buck-bunny", "mp3", 0) {
 		t.Error("Exists after writing")
 	}
 	if p2 := OutputPath(dir, "", "Big Buck Bunny!", "aqz-KE-bpKQ", "mp3"); filepath.Base(p2) != "big-buck-bunny-1.mp3" {
@@ -133,5 +131,28 @@ func TestOutputPathInvalidParent(t *testing.T) {
 	// Stat returns ENOTDIR, not ErrNotExist on Unix. This must terminate.
 	if got := OutputPath(parent, "", "title", "id", "mp4"); got != filepath.Join(parent, "title.mp4") {
 		t.Fatal(got)
+	}
+}
+
+// Two playlist videos with the same title are saved as name and name-1, so
+// resuming must look for the second one under name-1.
+func TestExistsDuplicateTitles(t *testing.T) {
+	dir := t.TempDir()
+	first := OutputPath(dir, "", "Intro", "aaaaaaaaaaa", "mp4")
+	if err := os.WriteFile(first, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !Exists(dir, "intro", "mp4", 0) {
+		t.Error("first copy not found")
+	}
+	if Exists(dir, "intro", "mp4", 1) {
+		t.Error("second copy reported before it was saved")
+	}
+	second := OutputPath(dir, "", "Intro", "bbbbbbbbbbb", "mp4")
+	if err := os.WriteFile(second, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !Exists(dir, "intro", "mp4", 1) {
+		t.Errorf("second copy %s not found", filepath.Base(second))
 	}
 }

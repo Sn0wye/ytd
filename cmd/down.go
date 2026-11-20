@@ -98,26 +98,18 @@ func init() {
 	rootCmd.AddCommand(downCmd)
 }
 
+// download sends url to the playlist or the single-video path.
 func download(url string) error {
-	start := time.Now()
-	// Preserve single-video validation order, including its error output.
-	if !playlist && !youtube.IsPlaylistPage(url) {
-		if _, err := youtube.ExtractVideoID(url); err != nil {
-			return err
-		}
-	}
-	container, err := downloader.ResolveContainer(format, fileName, audioOnly, forceH264)
-	if err != nil {
-		return err
-	}
-	audioOnly = slices.Contains(downloader.AudioContainers, container)
-
 	if playlist || youtube.IsPlaylistPage(url) {
 		listID, err := youtube.ExtractPlaylistID(url)
 		if err != nil {
-			if playlist {
+			if playlist && errors.Is(err, youtube.ErrInvalidPlaylist) {
 				return fmt.Errorf("--playlist needs a URL with a list= parameter: %w", err)
 			}
+			return err
+		}
+		container, err := resolveContainer()
+		if err != nil {
 			return err
 		}
 		return downloadPlaylist(listID, container)
@@ -130,7 +122,26 @@ func download(url string) error {
 	if err != nil {
 		return err
 	}
+	container, err := resolveContainer()
+	if err != nil {
+		return err
+	}
+	return downloadVideo(id, container)
+}
 
+// resolveContainer resolves the output format from the flags. An audio
+// format such as mp3 implies --audio-only.
+func resolveContainer() (string, error) {
+	c, err := downloader.ResolveContainer(format, fileName, audioOnly, forceH264)
+	if err != nil {
+		return "", err
+	}
+	audioOnly = slices.Contains(downloader.AudioContainers, c)
+	return c, nil
+}
+
+func downloadVideo(id, container string) error {
+	start := time.Now()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

@@ -71,10 +71,14 @@ func downloadPlaylist(listID, container string) error {
 
 	var saved, skipped int
 	var failed []string
+	dups := make(map[string]int) // videos seen so far per file name
 	for k, pos := range positions {
 		e := p.Entries[pos-1]
 		label := fmt.Sprintf("[%d/%d] %s", k+1, len(positions), truncate(e.Title, maxLabel))
-		if downloader.Exists(opts.OutputDir, e.Title, e.ID, container) {
+		name := downloader.Name("", e.Title, e.ID)
+		dup := dups[name]
+		dups[name]++
+		if downloader.Exists(opts.OutputDir, name, container, dup) {
 			out.Picked(label, "already downloaded")
 			skipped++
 			continue
@@ -82,7 +86,7 @@ func downloadPlaylist(listID, container string) error {
 
 		began := time.Now()
 		r := &entryReporter{label: label}
-		path, _, err := downloader.Fetch(ctx, client, e.ID, opts, downloader.Selection{}, r, nil)
+		path, err := downloader.FetchBest(ctx, client, e.ID, opts, r)
 		if ctx.Err() != nil {
 			r.fail(ctx.Err())
 			return ui.ErrAborted
