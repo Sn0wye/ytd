@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -64,6 +65,13 @@ func downloadPlaylist(listID, container string) error {
 	}
 	out.Describe(p.Title, detail)
 
+	// Without --items or --best, let the user untick videos in a checklist.
+	if items == "" && !pickBest && out.CanPrompt() {
+		if positions, err = pickEntries(p.Entries); err != nil {
+			return err
+		}
+	}
+
 	if !noPlaylistDir {
 		opts.OutputDir = filepath.Join(outputDir, downloader.Name("", p.Title, p.ID))
 	}
@@ -116,6 +124,28 @@ func downloadPlaylist(listID, container string) error {
 		return errSomeFailed
 	}
 	return nil
+}
+
+// pickEntries shows the playlist as a checklist with every video selected
+// and returns the 1-based positions the user kept.
+func pickEntries(entries []youtube.Entry) ([]int, error) {
+	w := len(strconv.Itoa(len(entries)))
+	rows := make([]string, len(entries))
+	for i, e := range entries {
+		length := "-"
+		if e.Duration > 0 {
+			length = ui.Clock(e.Duration)
+		}
+		rows[i] = fmt.Sprintf("%*d  %7s  %s", w, i+1, length, e.Title)
+	}
+	header := fmt.Sprintf("%*s  %7s  %s", w, "#", "LENGTH", "TITLE")
+	picked, err := out.MultiSelect("Videos", header, rows, func(n int) string {
+		return fmt.Sprintf("%d of %d videos", n, len(entries))
+	})
+	for i := range picked {
+		picked[i]++
+	}
+	return picked, err
 }
 
 // entryReporter shows a whole playlist entry (download and re-encode) as

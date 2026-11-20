@@ -48,7 +48,9 @@ Only mp3 output and --h264 need ffmpeg, because they re-encode.
 A playlist URL (or --playlist with a watch URL that has list=) downloads
 every video of the playlist with the best quality for the chosen format,
 into a folder named after the playlist. Videos already saved there are
-skipped, so running the same command again resumes the playlist.
+skipped, so running the same command again resumes the playlist. Without
+--items or --best, a checklist with every video selected lets you untick
+the ones to leave out.
 
 Examples:
   ytd down https://www.youtube.com/watch?v=aqz-KE-bpKQ

@@ -98,6 +98,11 @@ ytd down 'https://www.youtube.com/playlist?list=PL...' --format mp3
 ytd down 'https://www.youtube.com/watch?v=ID&list=PL...' --playlist --items 1-10
 ```
 
+- ytd lists the videos in a checklist with all of them selected. Press
+  `space` (or `x`) to toggle one, `a` to select all or none, `i` to invert,
+  `PgUp`/`PgDn` to scroll a page and `enter` to start. `--items` or `--best`
+  skips the checklist, and so does running without a terminal (every video
+  is downloaded).
 - Every video gets the best quality that fits the format, without prompts
   (`--itag` and `--filename` cannot be used, since they are per video).
 - Files go into a folder named after the playlist inside `--output-dir`.

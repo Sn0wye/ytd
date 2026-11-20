@@ -128,16 +128,60 @@ func TestHandleKey(t *testing.T) {
 		{"k", 1, 0, false, nil},
 		{"G", 0, 2, false, nil},
 		{"g", 2, 0, false, nil},
+		{"\x1b[6~", 0, 2, false, nil}, // page down stops at the end
+		{"\x1b[5~", 1, 0, false, nil},
 		{"\r", 1, 1, true, nil},
 		{"\x03", 1, 1, false, ErrAborted},
 		{"\x1b", 1, 1, false, ErrAborted},
 		{"x", 1, 1, false, nil},
 	}
 	for _, c := range cases {
-		next, chosen, err := handleKey(c.key, c.cur, 3)
+		next, chosen, err := handleKey(c.key, c.cur, 3, 2)
 		if next != c.next || chosen != c.chosen || !errors.Is(err, c.err) {
 			t.Errorf("handleKey(%q, %d) = %d, %v, %v", c.key, c.cur, next, chosen, err)
 		}
+	}
+}
+
+func TestMultiKey(t *testing.T) {
+	sel := []bool{true, true, true}
+	press := func(k string, cur int) (int, bool, error) { return multiKey(k, cur, 2, sel) }
+	str := func() string {
+		var b strings.Builder
+		for _, s := range sel {
+			b.WriteString(map[bool]string{true: "x", false: "."}[s])
+		}
+		return b.String()
+	}
+
+	if next, _, _ := press("j", 0); next != 1 {
+		t.Errorf("j moved to %d", next)
+	}
+	press(" ", 1)
+	if str() != "x.x" {
+		t.Errorf("space: %s", str())
+	}
+	press("i", 0)
+	if str() != ".x." {
+		t.Errorf("invert: %s", str())
+	}
+	press("a", 0) // not all selected: select all
+	if str() != "xxx" {
+		t.Errorf("a with some selected: %s", str())
+	}
+	press("A", 0) // all selected: clear
+	if str() != "..." {
+		t.Errorf("a with all selected: %s", str())
+	}
+	if _, done, _ := press("\r", 0); done {
+		t.Error("enter with nothing selected must not confirm")
+	}
+	press("x", 2)
+	if _, done, _ := press("\r", 0); !done || str() != "..x" {
+		t.Errorf("enter: done=%v sel=%s", done, str())
+	}
+	if _, _, err := press("q", 0); !errors.Is(err, ErrAborted) {
+		t.Errorf("q: %v", err)
 	}
 }
 
